@@ -8,6 +8,7 @@ using BeautifulSoup with Playwright for JavaScript-rendered content.
 import logging
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
@@ -277,6 +278,27 @@ class AmazonScraper(BaseScraper):
             if re.match(r"^[A-Z0-9]{10}$", part):
                 return part
         return ""
+
+    # ─── URL Cleaning ─────────────────────────────────────────
+
+    def _clean_url(self, url: str) -> str:
+        """
+        Normalize Amazon URL to minimal canonical form.
+
+        Strips tracking parameters (ref, pd_rd_*, pf_rd_*, content-id, etc.)
+        and reduces to https://www.amazon.com/dp/{ASIN} format.
+        This avoids timeouts from overly long URLs and reduces fingerprinting.
+        """
+        asin = self._extract_asin(url)
+        if asin:
+            # Reconstruct clean canonical URL
+            parsed = urlparse(url)
+            host = parsed.netloc or "www.amazon.com"
+            clean = f"https://{host}/dp/{asin}"
+            logger.debug(f"Cleaned Amazon URL: {url[:80]}... → {clean}")
+            return clean
+        # Fallback: return original if ASIN not found
+        return url
 
     # ─── Bot Detection ────────────────────────────────────────
 

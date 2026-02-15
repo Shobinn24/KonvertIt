@@ -125,7 +125,10 @@ class BaseScraper(IScrapeable):
         """Navigate to the URL and return page content."""
         await self._browser_manager.apply_human_delay()
 
-        response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        # Clean the URL before navigating (strip tracking params, etc.)
+        clean_url = self._clean_url(url)
+
+        response = await page.goto(clean_url, wait_until="domcontentloaded", timeout=60000)
 
         if response and response.status == 404:
             from app.core.exceptions import ProductNotFoundError
@@ -143,6 +146,15 @@ class BaseScraper(IScrapeable):
     def validate(self, product: ScrapedProduct) -> bool:
         """Validate that the scraped product has minimum required data."""
         return product.is_complete
+
+    def _clean_url(self, url: str) -> str:
+        """
+        Clean a product URL by stripping unnecessary tracking parameters.
+
+        Subclasses can override for marketplace-specific URL normalization.
+        Default: returns URL as-is.
+        """
+        return url
 
     @abstractmethod
     def _extract(self, page_content: str) -> dict[str, Any]:
