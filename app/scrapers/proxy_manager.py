@@ -98,15 +98,17 @@ class ProxyManager:
         settings = get_settings()
 
         if settings.proxy_provider == ProxyProvider.SCRAPERAPI and settings.scraper_api_key:
-            # ScraperAPI uses a single API endpoint that handles rotation internally
+            # ScraperAPI proxy mode: standard HTTP proxy with auth credentials.
+            # This is required for Playwright which needs a real proxy server
+            # (not the REST API endpoint at api.scraperapi.com).
             self._proxies.append(
                 Proxy(
-                    address=f"http://api.scraperapi.com?api_key={settings.scraper_api_key}",
+                    address=f"http://scraperapi:{settings.scraper_api_key}@proxy-server.scraperapi.com:8001",
                     proxy_type=ProxyType.RESIDENTIAL,
                     provider="scraperapi",
                 )
             )
-            logger.info("Loaded ScraperAPI proxy configuration")
+            logger.info("Loaded ScraperAPI proxy configuration (proxy mode)")
 
         elif settings.proxy_list:
             # Raw proxy list: comma-separated
