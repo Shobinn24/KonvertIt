@@ -12,7 +12,7 @@
  *   const { lastEvent } = useWebSocket("price_alert");
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { wsClient } from "@/services/wsService";
 import type { WSEvent, WSEventType } from "@/types/api";
 

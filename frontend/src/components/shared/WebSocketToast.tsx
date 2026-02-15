@@ -12,7 +12,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebSocket, useWebSocketLifecycle } from "@/hooks/useWebSocket";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { Toaster } from "@/components/ui/toaster";
-import type { WSEvent } from "@/types/api";
 
 function formatPriceAlert(data: Record<string, unknown>): {
   title: string;
