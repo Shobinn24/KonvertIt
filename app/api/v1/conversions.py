@@ -16,6 +16,7 @@ All endpoints require JWT authentication (Bearer token).
 import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 
 from pydantic import BaseModel, Field
 
@@ -75,15 +76,26 @@ class PreviewRequest(BaseModel):
 # ─── Helpers ──────────────────────────────────────────────
 
 
-def _get_conversion_service() -> ConversionService:
-    """Create a ConversionService instance with default dependencies."""
-    return ConversionService(
-        proxy_manager=ProxyManager(),
-        browser_manager=BrowserManager(),
-        compliance_service=ComplianceService(),
-        profit_engine=ProfitEngine(),
-        ebay_converter=EbayConverter(),
-    )
+@asynccontextmanager
+async def _conversion_service_context():
+    """Create a ConversionService with a properly started BrowserManager.
+
+    Uses async context manager to ensure BrowserManager is started before
+    scraping and cleaned up afterward.
+    """
+    browser_manager = BrowserManager()
+    try:
+        await browser_manager.start()
+        service = ConversionService(
+            proxy_manager=ProxyManager(),
+            browser_manager=browser_manager,
+            compliance_service=ComplianceService(),
+            profit_engine=ProfitEngine(),
+            ebay_converter=EbayConverter(),
+        )
+        yield service
+    finally:
+        await browser_manager.close()
 
 
 def get_sse_manager() -> SSEProgressManager:
@@ -117,29 +129,29 @@ async def create_conversion(
     user_id = user["sub"]
 
     try:
-        service = _get_conversion_service()
-        result = await service.convert_url(
-            url=request.url,
-            user_id=user_id,
-            publish=request.publish,
-            sell_price=request.sell_price,
-        )
+        async with _conversion_service_context() as service:
+            result = await service.convert_url(
+                url=request.url,
+                user_id=user_id,
+                publish=request.publish,
+                sell_price=request.sell_price,
+            )
 
-        # Push real-time notification via WebSocket
-        try:
-            from app.services.ws_manager import WSEvent, WSEventType, get_ws_manager
-            ws_mgr = get_ws_manager()
-            await ws_mgr.send_to_user(user_id, WSEvent(
-                event=WSEventType.CONVERSION_COMPLETE,
-                data={
-                    "url": request.url,
-                    "status": result.status.value if hasattr(result.status, "value") else str(result.status),
-                },
-            ))
-        except Exception:
-            pass  # WS is best-effort
+            # Push real-time notification via WebSocket
+            try:
+                from app.services.ws_manager import WSEvent, WSEventType, get_ws_manager
+                ws_mgr = get_ws_manager()
+                await ws_mgr.send_to_user(user_id, WSEvent(
+                    event=WSEventType.CONVERSION_COMPLETE,
+                    data={
+                        "url": request.url,
+                        "status": result.status.value if hasattr(result.status, "value") else str(result.status),
+                    },
+                ))
+            except Exception:
+                pass  # WS is best-effort
 
-        return result.to_dict()
+            return result.to_dict()
 
     except ConversionError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -169,14 +181,14 @@ async def create_bulk_conversion(
     user_id = user["sub"]
 
     try:
-        service = _get_conversion_service()
-        progress = await service.convert_bulk(
-            urls=request.urls,
-            user_id=user_id,
-            publish=request.publish,
-            sell_price=request.sell_price,
-        )
-        return progress.to_dict()
+        async with _conversion_service_context() as service:
+            progress = await service.convert_bulk(
+                urls=request.urls,
+                user_id=user_id,
+                publish=request.publish,
+                sell_price=request.sell_price,
+            )
+            return progress.to_dict()
 
     except KonvertItError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -202,12 +214,12 @@ async def preview_conversion(
     user_id = user["sub"]
 
     try:
-        service = _get_conversion_service()
-        result = await service.preview_conversion(
-            url=request.url,
-            user_id=user_id,
-        )
-        return result.to_dict()
+        async with _conversion_service_context() as service:
+            result = await service.preview_conversion(
+                url=request.url,
+                user_id=user_id,
+            )
+            return result.to_dict()
 
     except ConversionError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -290,7 +302,15 @@ async def create_bulk_conversion_stream(
     async def _run_conversion(jid: str) -> None:
         """Background task that runs the bulk conversion and emits SSE events."""
         try:
-            service = _get_conversion_service()
+            browser_manager = BrowserManager()
+            await browser_manager.start()
+            service = ConversionService(
+                proxy_manager=ProxyManager(),
+                browser_manager=browser_manager,
+                compliance_service=ComplianceService(),
+                profit_engine=ProfitEngine(),
+                ebay_converter=EbayConverter(),
+            )
             job = manager.get_job(jid)
 
             await manager.emit_job_started(jid)
@@ -356,6 +376,8 @@ async def create_bulk_conversion_stream(
         except Exception as e:
             logger.error(f"[SSE] Bulk conversion error for job {jid}: {e}", exc_info=True)
             await manager.emit_error(jid, f"{type(e).__name__}: {e}")
+        finally:
+            await browser_manager.close()
 
     async def event_generator():
         """Async generator that yields SSE events while conversion runs."""

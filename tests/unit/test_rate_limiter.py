@@ -13,6 +13,7 @@ Verifies:
 """
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -461,8 +462,14 @@ class TestEndpointIntegration:
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"status": "completed"}
 
-        with patch("app.api.v1.conversions._get_conversion_service") as mock_svc:
-            mock_svc.return_value.convert_url = AsyncMock(return_value=mock_result)
+        mock_svc = MagicMock()
+        mock_svc.convert_url = AsyncMock(return_value=mock_result)
+
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
                 "/api/v1/conversions/",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
@@ -503,8 +510,14 @@ class TestEndpointIntegration:
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"status": "preview"}
 
-        with patch("app.api.v1.conversions._get_conversion_service") as mock_svc:
-            mock_svc.return_value.preview_conversion = AsyncMock(return_value=mock_result)
+        mock_svc = MagicMock()
+        mock_svc.preview_conversion = AsyncMock(return_value=mock_result)
+
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
                 "/api/v1/conversions/preview",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
@@ -539,8 +552,14 @@ class TestEndpointIntegration:
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"status": "completed"}
 
-        with patch("app.api.v1.conversions._get_conversion_service") as mock_svc:
-            mock_svc.return_value.convert_url = AsyncMock(return_value=mock_result)
+        mock_svc = MagicMock()
+        mock_svc.convert_url = AsyncMock(return_value=mock_result)
+
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
                 "/api/v1/conversions/",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
@@ -599,8 +618,14 @@ class TestEndpointIntegration:
         mock_progress = MagicMock()
         mock_progress.to_dict.return_value = {"total": 2, "completed": 2}
 
-        with patch("app.api.v1.conversions._get_conversion_service") as mock_svc:
-            mock_svc.return_value.convert_bulk = AsyncMock(return_value=mock_progress)
+        mock_svc = MagicMock()
+        mock_svc.convert_bulk = AsyncMock(return_value=mock_progress)
+
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
                 "/api/v1/conversions/bulk",
                 json={"urls": [
@@ -622,8 +647,14 @@ class TestEndpointIntegration:
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"status": "completed"}
 
-        with patch("app.api.v1.conversions._get_conversion_service") as mock_svc:
-            mock_svc.return_value.convert_url = AsyncMock(return_value=mock_result)
+        mock_svc = MagicMock()
+        mock_svc.convert_url = AsyncMock(return_value=mock_result)
+
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
                 "/api/v1/conversions/",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},

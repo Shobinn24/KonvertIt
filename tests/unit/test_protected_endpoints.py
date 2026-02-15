@@ -12,6 +12,7 @@ needing a real database or JWT tokens in tests.
 """
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -831,12 +832,16 @@ class TestConversionAuthPayload:
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"status": "completed", "title": "Test"}
 
-        with patch(
-            "app.api.v1.conversions._get_conversion_service"
-        ) as mock_get_svc:
-            mock_svc = mock_get_svc.return_value
-            mock_svc.convert_url = AsyncMock(return_value=mock_result)
+        mock_svc = MagicMock()
+        mock_svc.convert_url = AsyncMock(return_value=mock_result)
 
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch(
+            "app.api.v1.conversions._conversion_service_context", _mock_ctx
+        ):
             resp = client.post(
                 "/api/v1/conversions/",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
@@ -857,12 +862,16 @@ class TestConversionAuthPayload:
             "total": 1, "completed": 1, "failed": 0, "results": []
         }
 
-        with patch(
-            "app.api.v1.conversions._get_conversion_service"
-        ) as mock_get_svc:
-            mock_svc = mock_get_svc.return_value
-            mock_svc.convert_bulk = AsyncMock(return_value=mock_progress)
+        mock_svc = MagicMock()
+        mock_svc.convert_bulk = AsyncMock(return_value=mock_progress)
 
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch(
+            "app.api.v1.conversions._conversion_service_context", _mock_ctx
+        ):
             resp = client.post(
                 "/api/v1/conversions/bulk",
                 json={"urls": ["https://amazon.com/dp/B09C5RG6KV"]},
@@ -880,12 +889,16 @@ class TestConversionAuthPayload:
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"status": "preview", "title": "Test"}
 
-        with patch(
-            "app.api.v1.conversions._get_conversion_service"
-        ) as mock_get_svc:
-            mock_svc = mock_get_svc.return_value
-            mock_svc.preview_conversion = AsyncMock(return_value=mock_result)
+        mock_svc = MagicMock()
+        mock_svc.preview_conversion = AsyncMock(return_value=mock_result)
 
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch(
+            "app.api.v1.conversions._conversion_service_context", _mock_ctx
+        ):
             resp = client.post(
                 "/api/v1/conversions/preview",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
@@ -935,14 +948,18 @@ class TestConversionErrorHandling:
         application, mock_session = app
         client = TestClient(application)
 
-        with patch(
-            "app.api.v1.conversions._get_conversion_service"
-        ) as mock_get_svc:
-            mock_svc = mock_get_svc.return_value
-            mock_svc.convert_url = AsyncMock(
-                side_effect=ConversionError("Invalid URL")
-            )
+        mock_svc = MagicMock()
+        mock_svc.convert_url = AsyncMock(
+            side_effect=ConversionError("Invalid URL")
+        )
 
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch(
+            "app.api.v1.conversions._conversion_service_context", _mock_ctx
+        ):
             resp = client.post(
                 "/api/v1/conversions/",
                 json={"url": "https://invalid.com"},
@@ -956,14 +973,18 @@ class TestConversionErrorHandling:
         application, mock_session = app
         client = TestClient(application)
 
-        with patch(
-            "app.api.v1.conversions._get_conversion_service"
-        ) as mock_get_svc:
-            mock_svc = mock_get_svc.return_value
-            mock_svc.convert_url = AsyncMock(
-                side_effect=KonvertItError("Internal failure")
-            )
+        mock_svc = MagicMock()
+        mock_svc.convert_url = AsyncMock(
+            side_effect=KonvertItError("Internal failure")
+        )
 
+        @asynccontextmanager
+        async def _mock_ctx():
+            yield mock_svc
+
+        with patch(
+            "app.api.v1.conversions._conversion_service_context", _mock_ctx
+        ):
             resp = client.post(
                 "/api/v1/conversions/",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
