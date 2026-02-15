@@ -33,11 +33,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy pre-built Python packages from builder
 COPY --from=builder /install /usr/local
 
-# Install Playwright chromium (after Python packages are in place)
-RUN playwright install chromium --with-deps
-
 # Create non-root user
 RUN groupadd -r konvertit && useradd -r -g konvertit -d /app -s /sbin/nologin konvertit
+
+# Install Playwright chromium to a shared path accessible by non-root user
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN mkdir -p /opt/playwright \
+    && playwright install chromium --with-deps \
+    && chmod -R 755 /opt/playwright
 
 WORKDIR /app
 

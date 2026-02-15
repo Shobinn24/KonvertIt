@@ -6,7 +6,7 @@
   "deploy": {
     "startCommand": "alembic upgrade head && gunicorn app.main:app -c gunicorn.conf.py",
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 30,
+    "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
   }
