@@ -6,6 +6,8 @@ import type { BulkStreamState } from "@/hooks/useBulkStream";
 interface BulkProgressProps {
   state: BulkStreamState;
   onReset: () => void;
+  onItemSelect?: (result: unknown) => void;
+  selectedIndex?: number | null;
 }
 
 const stepLabels: Record<string, string> = {
@@ -30,7 +32,7 @@ function ItemIcon({ status }: { status: string }) {
   }
 }
 
-export function BulkProgress({ state, onReset }: BulkProgressProps) {
+export function BulkProgress({ state, onReset, onItemSelect, selectedIndex }: BulkProgressProps) {
   if (state.phase === "idle") return null;
 
   const isDone = state.phase === "done" || state.phase === "error";
@@ -75,22 +77,39 @@ export function BulkProgress({ state, onReset }: BulkProgressProps) {
 
         {/* Item list */}
         <ul className="max-h-64 space-y-1.5 overflow-y-auto">
-          {state.items.map((item, i) => (
-            <li key={i} className="flex items-center gap-2 text-sm">
-              <ItemIcon status={item.status} />
-              <span className="min-w-0 flex-1 truncate">{item.url}</span>
-              {item.status === "processing" && item.step && (
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {stepLabels[item.step] ?? item.step}
-                </span>
-              )}
-              {item.status === "failed" && item.error && (
-                <span className="shrink-0 text-xs text-destructive">
-                  {item.error}
-                </span>
-              )}
-            </li>
-          ))}
+          {state.items.map((item, i) => {
+            const isClickable = item.status === "completed" && item.result && onItemSelect;
+            const isSelected = selectedIndex === i;
+            return (
+              <li
+                key={i}
+                className={`flex items-center gap-2 text-sm rounded-md px-2 py-1 ${
+                  isClickable
+                    ? "cursor-pointer hover:bg-muted/50 transition-colors"
+                    : ""
+                } ${isSelected ? "bg-muted" : ""}`}
+                onClick={isClickable ? () => onItemSelect(item.result) : undefined}
+              >
+                <ItemIcon status={item.status} />
+                <span className="min-w-0 flex-1 truncate">{item.url}</span>
+                {item.status === "completed" && isClickable && (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    Click to preview
+                  </span>
+                )}
+                {item.status === "processing" && item.step && (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {stepLabels[item.step] ?? item.step}
+                  </span>
+                )}
+                {item.status === "failed" && item.error && (
+                  <span className="shrink-0 text-xs text-destructive">
+                    {item.error}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </CardContent>
     </Card>
