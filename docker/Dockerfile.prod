@@ -1,0 +1,64 @@
+# ─── Stage 1: Build dependencies ─────────────────────────────
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Install build-time system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    && pip install --no-cache-dir --prefix=/install gunicorn>=22.0.0
+
+
+# ─── Stage 2: Production runtime ─────────────────────────────
+FROM python:3.12-slim AS runtime
+
+# Labels
+LABEL maintainer="Shobinn Clark <shobinn@eclarx.com>"
+LABEL org.opencontainers.image.title="KonvertIt API"
+LABEL org.opencontainers.image.description="Multi-Marketplace Product Conversion Platform"
+
+# Install runtime-only system deps (Playwright browser deps + libxml2)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxml2 \
+    libxslt1.1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built Python packages from builder
+COPY --from=builder /install /usr/local
+
+# Install Playwright chromium (after Python packages are in place)
+RUN playwright install chromium --with-deps
+
+# Create non-root user
+RUN groupadd -r konvertit && useradd -r -g konvertit -d /app -s /sbin/nologin konvertit
+
+WORKDIR /app
+
+# Copy application code
+COPY app/ app/
+COPY alembic.ini .
+COPY gunicorn.conf.py .
+COPY pyproject.toml .
+
+# Create writable dirs for temp files
+RUN mkdir -p /app/tmp && chown -R konvertit:konvertit /app
+
+# Switch to non-root
+USER konvertit
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run with Gunicorn (Uvicorn workers)
+CMD ["gunicorn", "app.main:app", "-c", "gunicorn.conf.py"]

@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "konvertit"
+version = "1.0.0"
+description = "Multi-Marketplace Product Conversion Platform"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Shobinn Clark", email = "shobinn@eclarx.com"},
+]
+
+[project.urls]
+Homepage = "https://konvertit.com"
+Documentation = "https://docs.konvertit.com"
+Repository = "https://github.com/eclarx/konvertit"
+Issues = "https://github.com/eclarx/konvertit/issues"
+Changelog = "https://github.com/eclarx/konvertit/blob/main/CHANGELOG.md"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",
+    "redis>=5.2.0",
+    "arq>=0.26.1",
+    "playwright>=1.49.0",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.3.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "httpx>=0.28.0",
+    "bcrypt>=4.2.0",
+    "python-jose[cryptography]>=3.3.0",
+    "cryptography>=44.0.0",
+    "python-multipart>=0.0.18",
+    "structlog>=24.4.0",
+    "sentry-sdk[fastapi]>=2.19.0",
+    "gunicorn>=22.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "bandit>=1.8.0",
+    "safety>=3.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests requiring database",
+    "e2e: End-to-end tests",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/db/migrations/*",
+    "app/db/database.py",
+    "app/db/models.py",
+    "app/db/repositories/*",
+    "app/api/*",
+    "app/tasks/*",
+    "app/middleware/*",
+    "app/listers/*",
+    "app/services/conversion_service.py",
+    "app/services/price_monitor_service.py",
+    "app/services/user_service.py",
+    "app/converters/*",
+    "app/scrapers/walmart_scraper.py",
+    "app/scrapers/scraper_factory.py",
+    "app/main.py",
+    "tests/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "pass",
+    "\\.\\.\\.",
+]
