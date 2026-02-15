@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://YOUR_RAILWAY_API_DOMAIN/api/:path*"
+      "destination": "https://konvertit-production.up.railway.app/api/:path*"
     }
   ]
 }
