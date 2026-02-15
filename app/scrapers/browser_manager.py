@@ -138,9 +138,10 @@ class BrowserManager:
             "ignore_https_errors": True,
         }
 
-        # Configure proxy if provided
+        # Configure proxy if provided (skip for ScraperAPI — it uses URL wrapping, not proxy port)
         if proxy and proxy is not DIRECT_PROXY and proxy.address != "DIRECT":
-            context_kwargs["proxy"] = {"server": proxy.address}
+            if proxy.provider != "scraperapi":
+                context_kwargs["proxy"] = {"server": proxy.address}
 
         context = await self._browser.new_context(**context_kwargs)
 

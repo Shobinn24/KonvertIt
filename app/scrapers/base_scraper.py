@@ -9,13 +9,14 @@ import logging
 import time
 from abc import abstractmethod
 from typing import Any
+from urllib.parse import quote
 
 from app.core.exceptions import ScrapingError
 from app.core.interfaces import IScrapeable
 from app.core.models import ScrapedProduct
 from app.core.resilience import CircuitBreaker, retry_with_backoff
 from app.scrapers.browser_manager import BrowserManager
-from app.scrapers.proxy_manager import ProxyManager
+from app.scrapers.proxy_manager import Proxy, ProxyManager
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class BaseScraper(IScrapeable):
             page = await self._browser_manager.get_page(proxy=proxy)
 
             # Navigate to the product page
-            content = await self._navigate(page, url)
+            content = await self._navigate(page, url, proxy=proxy)
 
             # Check for bot detection
             if self._detect_bot_block(content):
@@ -121,14 +122,21 @@ class BaseScraper(IScrapeable):
             if page:
                 await self._browser_manager.release_page(page)
 
-    async def _navigate(self, page, url: str) -> str:
+    async def _navigate(self, page, url: str, proxy: Proxy | None = None) -> str:
         """Navigate to the URL and return page content."""
         await self._browser_manager.apply_human_delay()
 
         # Clean the URL before navigating (strip tracking params, etc.)
         clean_url = self._clean_url(url)
 
-        response = await page.goto(clean_url, wait_until="domcontentloaded", timeout=60000)
+        # For ScraperAPI: wrap the target URL through their API endpoint
+        # instead of using proxy-port mode (which Playwright doesn't support).
+        nav_url = clean_url
+        if proxy and proxy.provider == "scraperapi":
+            nav_url = f"{proxy.address}&url={quote(clean_url, safe='')}"
+            logger.debug(f"Using ScraperAPI endpoint for: {clean_url}")
+
+        response = await page.goto(nav_url, wait_until="domcontentloaded", timeout=60000)
 
         if response and response.status == 404:
             from app.core.exceptions import ProductNotFoundError

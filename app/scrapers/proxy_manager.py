@@ -98,17 +98,18 @@ class ProxyManager:
         settings = get_settings()
 
         if settings.proxy_provider == ProxyProvider.SCRAPERAPI and settings.scraper_api_key:
-            # ScraperAPI proxy mode: standard HTTP proxy with auth credentials.
-            # This is required for Playwright which needs a real proxy server
-            # (not the REST API endpoint at api.scraperapi.com).
+            # ScraperAPI uses API endpoint mode (not proxy port mode).
+            # Playwright doesn't support proxy-port auth, so we wrap target URLs
+            # through ScraperAPI's API instead. The "address" stores the API base URL
+            # with the key — BaseScraper._navigate() rewrites the navigation URL.
             self._proxies.append(
                 Proxy(
-                    address=f"http://scraperapi:{settings.scraper_api_key}@proxy-server.scraperapi.com:8001",
+                    address=f"https://api.scraperapi.com?api_key={settings.scraper_api_key}",
                     proxy_type=ProxyType.RESIDENTIAL,
                     provider="scraperapi",
                 )
             )
-            logger.info("Loaded ScraperAPI proxy configuration (proxy mode)")
+            logger.info("Loaded ScraperAPI configuration (API endpoint mode)")
 
         elif settings.proxy_list:
             # Raw proxy list: comma-separated
