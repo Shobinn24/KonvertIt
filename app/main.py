@@ -114,6 +114,7 @@ def create_app() -> FastAPI:
         },
         docs_url="/docs" if settings.is_development else None,
         redoc_url="/redoc" if settings.is_development else None,
+        redirect_slashes=False,
     )
 
     # Middleware order: SecurityHeaders → Logging → GZip → CORS (LIFO — CORS outermost)
