@@ -31,6 +31,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Skip WebSocket upgrade requests — BaseHTTPMiddleware can't handle them
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+
         response = await call_next(request)
 
         # Core security headers

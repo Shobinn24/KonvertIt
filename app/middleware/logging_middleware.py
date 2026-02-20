@@ -31,6 +31,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Skip WebSocket upgrade requests — BaseHTTPMiddleware can't handle them
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+
         request_id = uuid.uuid4().hex[:8]
 
         # Bind request context — available to ALL loggers in this request
