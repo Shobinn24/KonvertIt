@@ -104,7 +104,7 @@ class ProxyManager:
             # with the key — BaseScraper._navigate() rewrites the navigation URL.
             self._proxies.append(
                 Proxy(
-                    address=f"https://api.scraperapi.com?api_key={settings.scraper_api_key}",
+                    address=f"https://api.scraperapi.com?api_key={settings.scraper_api_key}&render=true&country_code=us",
                     proxy_type=ProxyType.RESIDENTIAL,
                     provider="scraperapi",
                 )
