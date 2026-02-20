@@ -1,8 +1,11 @@
 """
 Amazon product page scraper.
 
-Extracts product data from Amazon product pages (amazon.com/dp/{ASIN})
-using BeautifulSoup with Playwright for JavaScript-rendered content.
+Extracts product data from Amazon product pages (amazon.com/dp/{ASIN}).
+
+When ScraperAPI is configured, uses their Structured Data endpoint for
+reliable JSON responses. Falls back to Playwright + BeautifulSoup for
+other proxy providers or direct connections.
 """
 
 import logging
@@ -10,10 +13,12 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 from bs4 import BeautifulSoup
 
-from app.core.exceptions import CaptchaDetectedError, DogPageError
+from app.core.exceptions import CaptchaDetectedError, DogPageError, ScrapingError
 from app.core.models import ScrapedProduct, SourceMarketplace
+from app.core.resilience import retry_with_backoff
 from app.scrapers.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
@@ -24,13 +29,17 @@ ASIN_PATTERN = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})")
 # Price patterns
 PRICE_PATTERN = re.compile(r"\$?([\d,]+\.?\d*)")
 
+# ScraperAPI structured endpoint for Amazon products
+SCRAPERAPI_STRUCTURED_URL = "https://api.scraperapi.com/structured/amazon/product"
+
 
 class AmazonScraper(BaseScraper):
     """
     Scraper for Amazon product pages.
 
     Handles:
-    - Multiple price formats (whole, deal, range)
+    - ScraperAPI Structured Data endpoint (preferred — returns JSON directly)
+    - Playwright fallback with multiple price formats (whole, deal, range)
     - Dog page detection (minimal HTML bot block)
     - CAPTCHA detection
     - High-resolution image URL conversion
@@ -39,7 +48,7 @@ class AmazonScraper(BaseScraper):
 
     SOURCE_NAME = "amazon"
 
-    # ─── CSS Selectors ────────────────────────────────────────
+    # ─── CSS Selectors (for Playwright fallback) ───────────────
 
     SELECTORS = {
         "title": [
@@ -84,7 +93,136 @@ class AmazonScraper(BaseScraper):
         ],
     }
 
-    # ─── Navigation Wait Strategy ──────────────────────────────
+    # ─── ScraperAPI Structured Endpoint ────────────────────────
+
+    def _get_scraperapi_key(self) -> str | None:
+        """Get ScraperAPI key from the proxy manager's config."""
+        for proxy in self._proxy_manager._proxies:
+            if proxy.provider == "scraperapi" and proxy.is_active:
+                # Extract api_key from the address URL
+                addr = proxy.address
+                if "api_key=" in addr:
+                    key_start = addr.index("api_key=") + len("api_key=")
+                    key_end = addr.index("&", key_start) if "&" in addr[key_start:] else len(addr)
+                    return addr[key_start:key_end]
+        return None
+
+    @retry_with_backoff(
+        max_retries=3,
+        base_delay=2.0,
+        retryable_exceptions=(ScrapingError,),
+    )
+    async def _scrape_with_retry(self, url: str) -> ScrapedProduct:
+        """Execute scraping with ScraperAPI structured endpoint or Playwright fallback."""
+        api_key = self._get_scraperapi_key()
+        asin = self._extract_asin(url)
+
+        if api_key and asin:
+            return await self._scrape_structured(api_key, asin, url)
+
+        # Fallback to Playwright-based scraping (parent implementation)
+        return await super()._scrape_with_retry(url)
+
+    async def _scrape_structured(self, api_key: str, asin: str, url: str) -> ScrapedProduct:
+        """Scrape using ScraperAPI's structured Amazon Product endpoint.
+
+        Returns structured JSON directly — no browser or HTML parsing needed.
+        """
+        proxy = await self._proxy_manager.get_proxy()
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(
+                    SCRAPERAPI_STRUCTURED_URL,
+                    params={
+                        "api_key": api_key,
+                        "asin": asin,
+                        "country_code": "us",
+                    },
+                )
+
+            if response.status_code == 404:
+                from app.core.exceptions import ProductNotFoundError
+                raise ProductNotFoundError(f"Product not found at {url}")
+
+            if response.status_code == 429:
+                raise ScrapingError(
+                    "ScraperAPI rate limit exceeded",
+                    details={"status": 429, "url": url},
+                )
+
+            if response.status_code != 200:
+                raise ScrapingError(
+                    f"ScraperAPI returned {response.status_code}",
+                    details={"status": response.status_code, "body": response.text[:500]},
+                )
+
+            data = response.json()
+            raw_data = self._extract_from_structured(data)
+            product = self._transform(raw_data, url)
+
+            if not self.validate(product):
+                raise ScrapingError(
+                    f"Incomplete product data from structured API for {url}",
+                    details={"raw_data": raw_data},
+                )
+
+            await self._proxy_manager.report_success(proxy)
+            logger.info(f"[amazon] Structured API success for ASIN {asin}")
+            return product
+
+        except ScrapingError:
+            await self._proxy_manager.report_failure(proxy)
+            raise
+        except Exception as e:
+            await self._proxy_manager.report_failure(proxy)
+            raise ScrapingError(
+                f"Structured API error for {url}: {e}",
+                details={"url": url, "error_type": type(e).__name__},
+            ) from e
+
+    def _extract_from_structured(self, data: dict) -> dict[str, Any]:
+        """Extract raw product fields from ScraperAPI structured JSON response."""
+        # Parse price from "$29.95" format
+        price = 0.0
+        pricing_str = data.get("pricing", "")
+        if pricing_str:
+            match = PRICE_PATTERN.search(pricing_str)
+            if match:
+                try:
+                    price = float(match.group(1).replace(",", ""))
+                except ValueError:
+                    pass
+
+        # Clean brand (same logic as HTML extraction)
+        brand = data.get("brand", "")
+        for prefix in ["Visit the ", "Brand: ", "by "]:
+            if brand.startswith(prefix):
+                brand = brand[len(prefix):]
+        if brand.endswith(" Store"):
+            brand = brand[:-6]
+        brand = brand.strip()
+
+        # Prefer high-res images, fall back to regular
+        images = data.get("high_res_images") or data.get("images") or []
+        images = images[:12]  # eBay max
+
+        # Build description from feature bullets
+        bullets = data.get("feature_bullets", [])
+        description = " | ".join(bullets) if bullets else data.get("full_description", "")
+
+        return {
+            "title": data.get("name", ""),
+            "price": price,
+            "brand": brand,
+            "images": images,
+            "description": description,
+            "category": data.get("product_category", ""),
+            "availability": data.get("availability_status", ""),
+            "structured_api": True,
+        }
+
+    # ─── Navigation Wait Strategy (Playwright fallback) ────────
 
     async def _wait_for_content(self, page) -> None:
         """Wait for Amazon product page to fully render.
@@ -103,7 +241,7 @@ class AmazonScraper(BaseScraper):
             logger.debug("Amazon #productTitle selector not found, using fallback wait")
             await page.wait_for_timeout(5000)
 
-    # ─── Extraction ───────────────────────────────────────────
+    # ─── Extraction (Playwright fallback) ──────────────────────
 
     def _extract(self, page_content: str) -> dict[str, Any]:
         """Extract raw product data from Amazon page HTML."""
@@ -319,7 +457,7 @@ class AmazonScraper(BaseScraper):
         # Fallback: return original if ASIN not found
         return url
 
-    # ─── Bot Detection ────────────────────────────────────────
+    # ─── Bot Detection (Playwright fallback) ───────────────────
 
     def _detect_bot_block(self, page_content: str) -> bool:
         """
