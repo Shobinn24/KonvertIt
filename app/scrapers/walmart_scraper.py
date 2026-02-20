@@ -4,17 +4,23 @@ Walmart product page scraper.
 Walmart uses Next.js with __NEXT_DATA__ JSON embedded in page source,
 making data extraction more reliable than HTML parsing. Falls back to
 HTML selectors when __NEXT_DATA__ is unavailable.
+
+When ScraperAPI is configured, fetches page HTML via httpx (no Playwright
+needed) and parses it with the existing extraction pipeline.
 """
 
 import json
 import logging
 import re
 from typing import Any
+from urllib.parse import quote
 
+import httpx
 from bs4 import BeautifulSoup
 
 from app.core.exceptions import CaptchaDetectedError, ScrapingError
 from app.core.models import ScrapedProduct, SourceMarketplace
+from app.core.resilience import retry_with_backoff
 from app.scrapers.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
@@ -40,6 +46,115 @@ class WalmartScraper(BaseScraper):
     """
 
     SOURCE_NAME = "walmart"
+
+    # ─── ScraperAPI httpx-based Scraping ─────────────────────────
+
+    def _get_scraperapi_key(self) -> str | None:
+        """Get ScraperAPI key from the proxy manager's config."""
+        for proxy in self._proxy_manager._proxies:
+            if proxy.provider == "scraperapi" and proxy.is_active:
+                addr = proxy.address
+                if "api_key=" in addr:
+                    key_start = addr.index("api_key=") + len("api_key=")
+                    key_end = addr.index("&", key_start) if "&" in addr[key_start:] else len(addr)
+                    return addr[key_start:key_end]
+        return None
+
+    @retry_with_backoff(
+        max_retries=3,
+        base_delay=2.0,
+        retryable_exceptions=(ScrapingError,),
+    )
+    async def _scrape_with_retry(self, url: str) -> ScrapedProduct:
+        """Execute scraping with ScraperAPI httpx or Playwright fallback.
+
+        ScraperAPI's Walmart structured endpoint requires ultra_premium,
+        so we fetch the raw HTML via their regular API and parse it ourselves
+        using the existing __NEXT_DATA__ / HTML extraction pipeline.
+        """
+        api_key = self._get_scraperapi_key()
+
+        if api_key:
+            return await self._scrape_via_scraperapi(api_key, url)
+
+        # Fallback to Playwright-based scraping (parent implementation)
+        return await super()._scrape_with_retry(url)
+
+    async def _scrape_via_scraperapi(self, api_key: str, url: str) -> ScrapedProduct:
+        """Fetch Walmart page HTML via ScraperAPI httpx, then parse it."""
+        proxy = await self._proxy_manager.get_proxy()
+        clean_url = self._clean_url(url)
+
+        try:
+            scraperapi_url = (
+                f"https://api.scraperapi.com"
+                f"?api_key={api_key}"
+                f"&render=true"
+                f"&country_code=us"
+                f"&url={quote(clean_url, safe='')}"
+            )
+
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.get(scraperapi_url)
+
+            if response.status_code == 404:
+                from app.core.exceptions import ProductNotFoundError
+                raise ProductNotFoundError(f"Product not found at {url}")
+
+            if response.status_code == 429:
+                raise ScrapingError(
+                    "ScraperAPI rate limit exceeded",
+                    details={"status": 429, "url": url},
+                )
+
+            if response.status_code != 200:
+                raise ScrapingError(
+                    f"ScraperAPI returned {response.status_code}",
+                    details={"status": response.status_code, "body": response.text[:500]},
+                )
+
+            page_content = response.text
+
+            # Check for bot detection
+            if self._detect_bot_block(page_content):
+                await self._proxy_manager.report_failure(proxy)
+                raise ScrapingError(
+                    "Bot detection triggered on walmart",
+                    details={"url": url, "content_length": len(page_content)},
+                )
+
+            # Use existing extraction pipeline
+            raw_data = self._extract(page_content)
+            product = self._transform(raw_data, url)
+
+            if not self.validate(product):
+                raise ScrapingError(
+                    f"Incomplete product data from {url}",
+                    details={"raw_data": raw_data},
+                )
+
+            await self._proxy_manager.report_success(proxy)
+            logger.info(f"[walmart] ScraperAPI httpx success for {url}")
+            return product
+
+        except ScrapingError:
+            await self._proxy_manager.report_failure(proxy)
+            raise
+        except Exception as e:
+            await self._proxy_manager.report_failure(proxy)
+            raise ScrapingError(
+                f"ScraperAPI error for {url}: {e}",
+                details={"url": url, "error_type": type(e).__name__},
+            ) from e
+
+    def _clean_url(self, url: str) -> str:
+        """Normalize Walmart URL to minimal form."""
+        product_id = self._extract_product_id(url)
+        if product_id:
+            clean = f"https://www.walmart.com/ip/{product_id}"
+            logger.debug(f"Cleaned Walmart URL: {url[:80]}... → {clean}")
+            return clean
+        return url
 
     # ─── CSS Selectors (fallback) ──────────────────────────────
 
