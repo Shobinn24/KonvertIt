@@ -146,10 +146,19 @@ class BaseScraper(IScrapeable):
             from app.core.exceptions import RateLimitError
             raise RateLimitError(f"Rate limited by {self.SOURCE_NAME}")
 
-        # Wait for dynamic content to render
-        await page.wait_for_timeout(2000)
+        # Wait for dynamic content to render.
+        # Subclasses can override _wait_for_content for marketplace-specific waits.
+        await self._wait_for_content(page)
 
         return await page.content()
+
+    async def _wait_for_content(self, page) -> None:
+        """Wait for dynamic content to render after navigation.
+
+        Subclasses can override for marketplace-specific wait strategies
+        (e.g. waiting for a product title selector on Amazon).
+        """
+        await page.wait_for_timeout(2000)
 
     def validate(self, product: ScrapedProduct) -> bool:
         """Validate that the scraped product has minimum required data."""

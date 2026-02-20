@@ -84,6 +84,25 @@ class AmazonScraper(BaseScraper):
         ],
     }
 
+    # ─── Navigation Wait Strategy ──────────────────────────────
+
+    async def _wait_for_content(self, page) -> None:
+        """Wait for Amazon product page to fully render.
+
+        Amazon's JS-rendered content (especially price) loads after DOM.
+        We wait for #productTitle first, then give extra time for price.
+        """
+        try:
+            await page.wait_for_selector(
+                "#productTitle", state="visible", timeout=15000
+            )
+            # Title appeared — wait a bit more for price/images to populate
+            await page.wait_for_timeout(3000)
+        except Exception:
+            # Selector not found — fall back to fixed wait
+            logger.debug("Amazon #productTitle selector not found, using fallback wait")
+            await page.wait_for_timeout(5000)
+
     # ─── Extraction ───────────────────────────────────────────
 
     def _extract(self, page_content: str) -> dict[str, Any]:
