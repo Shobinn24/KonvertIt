@@ -61,7 +61,7 @@ class WalmartScraper(BaseScraper):
         return None
 
     @retry_with_backoff(
-        max_retries=2,
+        max_retries=1,
         base_delay=2.0,
         retryable_exceptions=(ScrapingError,),
     )
@@ -72,8 +72,8 @@ class WalmartScraper(BaseScraper):
         so we fetch the raw HTML via their regular API and parse it ourselves
         using the existing __NEXT_DATA__ / HTML extraction pipeline.
 
-        Uses fewer retries (2 vs 3) since Walmart scraping via ScraperAPI
-        is slow and retries are unlikely to succeed for the same request.
+        Uses only 1 retry since Walmart scraping via ScraperAPI is slow (~60s)
+        and we must stay within Gunicorn's 120s worker timeout.
         """
         api_key = self._get_scraperapi_key()
 
@@ -103,7 +103,7 @@ class WalmartScraper(BaseScraper):
                 f"&url={quote(clean_url, safe='')}"
             )
 
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.get(scraperapi_url)
 
             if response.status_code == 429:
