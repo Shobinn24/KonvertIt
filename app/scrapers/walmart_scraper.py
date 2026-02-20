@@ -18,7 +18,7 @@ from urllib.parse import quote
 import httpx
 from bs4 import BeautifulSoup
 
-from app.core.exceptions import CaptchaDetectedError, ScrapingError
+from app.core.exceptions import CaptchaDetectedError, ProductNotFoundError, ScrapingError
 from app.core.models import ScrapedProduct, SourceMarketplace
 from app.core.resilience import retry_with_backoff
 from app.scrapers.base_scraper import BaseScraper
@@ -61,7 +61,7 @@ class WalmartScraper(BaseScraper):
         return None
 
     @retry_with_backoff(
-        max_retries=3,
+        max_retries=2,
         base_delay=2.0,
         retryable_exceptions=(ScrapingError,),
     )
@@ -71,6 +71,9 @@ class WalmartScraper(BaseScraper):
         ScraperAPI's Walmart structured endpoint requires ultra_premium,
         so we fetch the raw HTML via their regular API and parse it ourselves
         using the existing __NEXT_DATA__ / HTML extraction pipeline.
+
+        Uses fewer retries (2 vs 3) since Walmart scraping via ScraperAPI
+        is slow and retries are unlikely to succeed for the same request.
         """
         api_key = self._get_scraperapi_key()
 
@@ -81,7 +84,13 @@ class WalmartScraper(BaseScraper):
         return await super()._scrape_with_retry(url)
 
     async def _scrape_via_scraperapi(self, api_key: str, url: str) -> ScrapedProduct:
-        """Fetch Walmart page HTML via ScraperAPI httpx, then parse it."""
+        """Fetch Walmart page HTML via ScraperAPI httpx, then parse it.
+
+        Note: ScraperAPI may pass through Walmart's HTTP status codes (404/500)
+        even when page HTML is returned. We accept any response with substantial
+        content and attempt parsing. Walmart is a "protected domain" on ScraperAPI —
+        the trial plan may not be able to scrape it successfully.
+        """
         proxy = await self._proxy_manager.get_proxy()
         clean_url = self._clean_url(url)
 
@@ -97,23 +106,31 @@ class WalmartScraper(BaseScraper):
             async with httpx.AsyncClient(timeout=90.0) as client:
                 response = await client.get(scraperapi_url)
 
-            if response.status_code == 404:
-                from app.core.exceptions import ProductNotFoundError
-                raise ProductNotFoundError(f"Product not found at {url}")
-
             if response.status_code == 429:
                 raise ScrapingError(
                     "ScraperAPI rate limit exceeded",
                     details={"status": 429, "url": url},
                 )
 
-            if response.status_code != 200:
+            page_content = response.text
+
+            # ScraperAPI may return non-200 but still include page HTML.
+            # Only reject if response is small (likely an API error, not page content).
+            if response.status_code != 200 and len(page_content) < 10000:
+                # Small non-200 response — likely a ScraperAPI error
                 raise ScrapingError(
-                    f"ScraperAPI returned {response.status_code}",
-                    details={"status": response.status_code, "body": response.text[:500]},
+                    f"ScraperAPI returned {response.status_code} for Walmart. "
+                    "Walmart may require a premium ScraperAPI plan.",
+                    details={"status": response.status_code, "body": page_content[:500]},
                 )
 
-            page_content = response.text
+            # Detect Walmart "not found" pages (returned even with large HTML)
+            if "we couldn't find this page" in page_content.lower():
+                from app.core.exceptions import ProductNotFoundError
+                raise ProductNotFoundError(
+                    f"Walmart product not found at {url}. "
+                    "The product may have been removed or the URL may be incorrect."
+                )
 
             # Check for bot detection
             if self._detect_bot_block(page_content):
