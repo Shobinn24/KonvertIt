@@ -42,6 +42,10 @@ export interface ProductInfo {
   price: number;
   brand: string;
   source_product_id: string;
+  image_urls: string[];
+  description?: string;
+  category?: string;
+  source_marketplace?: "amazon" | "walmart";
 }
 
 export interface ComplianceInfo {
@@ -188,6 +192,31 @@ export interface WSEvent {
   event: WSEventType;
   data: Record<string, unknown>;
   timestamp: string;
+}
+
+// ─── Discovery ────────────────────────────────────────────────
+
+export interface DiscoveryProduct {
+  name: string;
+  price: number;
+  price_symbol: string;
+  image: string;
+  url: string;
+  stars: number | null;
+  total_reviews: number | null;
+  is_prime: boolean;
+  is_best_seller: boolean;
+  is_amazons_choice: boolean;
+  seller: string;
+  marketplace: "amazon" | "walmart";
+}
+
+export interface DiscoveryResponse {
+  products: DiscoveryProduct[];
+  page: number;
+  total_pages: number | null;
+  marketplace: string;
+  query: string;
 }
 
 // ─── Zod Form Schemas ──────────────────────────────────────────

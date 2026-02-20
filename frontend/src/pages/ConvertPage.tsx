@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { TopBar } from "@/components/layout/TopBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SingleConvert } from "@/components/convert/SingleConvert";
@@ -9,6 +10,8 @@ import { useBulkStream } from "@/hooks/useBulkStream";
 import type { ConversionResult } from "@/types/api";
 
 export function ConvertPage() {
+  const [searchParams] = useSearchParams();
+  const prefillUrl = searchParams.get("url") || "";
   const [preview, setPreview] = useState<ConversionResult | null>(null);
   const [selectedBulkIndex, setSelectedBulkIndex] = useState<number | null>(null);
   const bulk = useBulkStream();
@@ -55,7 +58,7 @@ export function ConvertPage() {
               </TabsList>
 
               <TabsContent value="single">
-                <SingleConvert onResult={setPreview} />
+                <SingleConvert onResult={setPreview} initialUrl={prefillUrl} />
               </TabsContent>
 
               <TabsContent value="bulk" className="space-y-4">

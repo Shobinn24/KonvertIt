@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,10 +12,16 @@ import type { ConversionResult } from "@/types/api";
 
 interface SingleConvertProps {
   onResult: (result: ConversionResult) => void;
+  initialUrl?: string;
 }
 
-export function SingleConvert({ onResult }: SingleConvertProps) {
-  const [url, setUrl] = useState("");
+export function SingleConvert({ onResult, initialUrl = "" }: SingleConvertProps) {
+  const [url, setUrl] = useState(initialUrl);
+
+  // Update URL when navigating from Discover page
+  useEffect(() => {
+    if (initialUrl) setUrl(initialUrl);
+  }, [initialUrl]);
   const [publish, setPublish] = useState(false);
   const [sellPrice, setSellPrice] = useState("");
 

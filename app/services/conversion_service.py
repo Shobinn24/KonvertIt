@@ -93,6 +93,10 @@ class ConversionResult:
                 "price": self.product.price,
                 "brand": self.product.brand,
                 "source_product_id": self.product.source_product_id,
+                "image_urls": self.product.images,
+                "description": self.product.description,
+                "category": self.product.category,
+                "source_marketplace": self.product.source_marketplace.value,
             } if self.product else None,
             "compliance": {
                 "is_compliant": self.compliance.is_compliant,

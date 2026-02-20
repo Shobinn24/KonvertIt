@@ -7,6 +7,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { ConvertPage } from "@/pages/ConvertPage";
 import { ListingsPage } from "@/pages/ListingsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { DiscoverPage } from "@/pages/DiscoverPage";
 
 const router = createBrowserRouter([
   {
@@ -24,6 +25,7 @@ const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <DashboardPage /> },
+          { path: "discover", element: <DiscoverPage /> },
           { path: "convert", element: <ConvertPage /> },
           { path: "listings", element: <ListingsPage /> },
           { path: "settings", element: <SettingsPage /> },

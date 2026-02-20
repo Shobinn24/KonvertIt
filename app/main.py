@@ -82,6 +82,10 @@ def create_app() -> FastAPI:
             "description": "Historical price tracking and statistics for monitored products.",
         },
         {
+            "name": "Discovery",
+            "description": "Search for products on Amazon and Walmart by keyword.",
+        },
+        {
             "name": "WebSocket",
             "description": "Real-time push notifications via WebSocket (price alerts, listing updates).",
         },
@@ -138,7 +142,7 @@ def create_app() -> FastAPI:
     )
 
     # Register API routers (triggers database module import)
-    from app.api.v1 import auth, conversions, listings, price_history, products, users, ws
+    from app.api.v1 import auth, conversions, discovery, listings, price_history, products, users, ws
     from app.db.database import get_db
 
     # Enhanced health check with DB and Redis probes
@@ -164,6 +168,7 @@ def create_app() -> FastAPI:
     app.include_router(listings.router, prefix="/api/v1")
     app.include_router(price_history.router, prefix="/api/v1")
     app.include_router(ws.router, prefix="/api/v1")
+    app.include_router(discovery.router, prefix="/api/v1")
 
     # Register global exception handlers (after routers)
     from app.middleware.exception_handler import register_exception_handlers
