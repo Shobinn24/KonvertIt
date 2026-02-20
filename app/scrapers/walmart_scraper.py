@@ -95,11 +95,12 @@ class WalmartScraper(BaseScraper):
         clean_url = self._clean_url(url)
 
         try:
+            # No render=true needed — Walmart embeds all product data in
+            # __NEXT_DATA__ server-side JSON. Basic mode is 1 credit (vs 5 for
+            # render) and returns 200 reliably on the trial plan.
             scraperapi_url = (
                 f"https://api.scraperapi.com"
                 f"?api_key={api_key}"
-                f"&render=true"
-                f"&country_code=us"
                 f"&url={quote(clean_url, safe='')}"
             )
 
