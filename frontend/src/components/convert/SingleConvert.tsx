@@ -4,6 +4,8 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { ErrorAlert } from "@/components/shared/ErrorAlert";
 import { convertSingle } from "@/services/conversionService";
 import type { ConversionResult } from "@/types/api";
@@ -14,6 +16,8 @@ interface SingleConvertProps {
 
 export function SingleConvert({ onResult }: SingleConvertProps) {
   const [url, setUrl] = useState("");
+  const [publish, setPublish] = useState(false);
+  const [sellPrice, setSellPrice] = useState("");
 
   const mutation = useMutation({
     mutationFn: convertSingle,
@@ -24,7 +28,11 @@ export function SingleConvert({ onResult }: SingleConvertProps) {
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
-    mutation.mutate(trimmed);
+    mutation.mutate({
+      url: trimmed,
+      publish,
+      sell_price: sellPrice ? parseFloat(sellPrice) : null,
+    });
   };
 
   return (
@@ -55,6 +63,39 @@ export function SingleConvert({ onResult }: SingleConvertProps) {
             )}
           </Button>
         </form>
+
+        {/* Options row */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="publish-toggle"
+              checked={publish}
+              onCheckedChange={setPublish}
+              disabled={mutation.isPending}
+            />
+            <Label htmlFor="publish-toggle" className="text-sm">
+              Publish to eBay
+            </Label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Label htmlFor="sell-price" className="text-sm whitespace-nowrap">
+              Sell price
+            </Label>
+            <Input
+              id="sell-price"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Auto"
+              value={sellPrice}
+              onChange={(e) => setSellPrice(e.target.value)}
+              disabled={mutation.isPending}
+              className="w-28"
+            />
+          </div>
+        </div>
+
         <ErrorAlert error={mutation.error} />
       </CardContent>
     </Card>

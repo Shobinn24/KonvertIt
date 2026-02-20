@@ -25,7 +25,7 @@ export function QuickConvert() {
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
-    mutation.mutate(trimmed);
+    mutation.mutate({ url: trimmed });
   };
 
   const result: ConversionResult | undefined = mutation.data;

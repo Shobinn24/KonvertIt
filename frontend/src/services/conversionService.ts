@@ -10,7 +10,15 @@ export async function getConversions(params?: {
   return res.data;
 }
 
-export async function convertSingle(url: string): Promise<ConversionResult> {
-  const res = await api.post<ConversionResult>("/conversions", { url });
+export interface ConvertSingleParams {
+  url: string;
+  publish?: boolean;
+  sell_price?: number | null;
+}
+
+export async function convertSingle(
+  params: ConvertSingleParams,
+): Promise<ConversionResult> {
+  const res = await api.post<ConversionResult>("/conversions", params);
   return res.data;
 }
