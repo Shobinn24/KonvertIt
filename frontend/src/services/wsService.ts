@@ -8,7 +8,7 @@
  * conversion streaming. WebSocket is for persistent push notifications.
  */
 
-import { getAccessToken } from "./apiClient";
+import { ensureFreshToken } from "./apiClient";
 import type { WSEvent, WSEventType } from "@/types/api";
 
 type WSCallback = (event: WSEvent) => void;
@@ -40,61 +40,69 @@ class WebSocketClient {
 
   /**
    * Connect to the WebSocket endpoint.
-   * Uses the JWT access token from localStorage for authentication.
+   * Refreshes the JWT if needed, then connects directly to the backend
+   * (Vercel rewrites don't support WebSocket proxying).
    */
   connect(): void {
-    const token = getAccessToken();
-    if (!token) {
-      this.setState("disconnected");
-      return;
-    }
-
     this.intentionalClose = false;
     this.setState("connecting");
 
-    // Build WebSocket URL — use current origin, replace protocol
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`;
+    ensureFreshToken().then((token) => {
+      if (!token || this.intentionalClose) {
+        this.setState("disconnected");
+        return;
+      }
 
-    try {
-      this.ws = new WebSocket(wsUrl);
-    } catch {
-      this.scheduleReconnect();
-      return;
-    }
-
-    this.ws.onopen = () => {
-      this.setState("connected");
-      this.reconnectDelay = MIN_RECONNECT_DELAY;
-      this.resetHeartbeatTimer();
-    };
-
-    this.ws.onmessage = (event: MessageEvent) => {
-      this.resetHeartbeatTimer();
+      // Use VITE_WS_URL for direct backend connection (bypasses Vercel proxy)
+      const wsBase = import.meta.env.VITE_WS_URL;
+      let wsUrl: string;
+      if (wsBase) {
+        wsUrl = `${wsBase}/api/v1/ws?token=${encodeURIComponent(token)}`;
+      } else {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        wsUrl = `${protocol}//${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`;
+      }
 
       try {
-        const parsed = JSON.parse(event.data as string) as WSEvent;
-        this.dispatch(parsed);
+        this.ws = new WebSocket(wsUrl);
       } catch {
-        // Ignore malformed messages
-      }
-    };
-
-    this.ws.onerror = () => {
-      // Error handling is done in onclose
-    };
-
-    this.ws.onclose = () => {
-      this.clearHeartbeatTimer();
-      this.ws = null;
-
-      if (!this.intentionalClose) {
-        this.setState("reconnecting");
         this.scheduleReconnect();
-      } else {
-        this.setState("disconnected");
+        return;
       }
-    };
+
+      this.ws.onopen = () => {
+        this.setState("connected");
+        this.reconnectDelay = MIN_RECONNECT_DELAY;
+        this.resetHeartbeatTimer();
+      };
+
+      this.ws.onmessage = (event: MessageEvent) => {
+        this.resetHeartbeatTimer();
+
+        try {
+          const parsed = JSON.parse(event.data as string) as WSEvent;
+          this.dispatch(parsed);
+        } catch {
+          // Ignore malformed messages
+        }
+      };
+
+      this.ws.onerror = () => {
+        // Error handling is done in onclose
+      };
+
+      this.ws.onclose = () => {
+        this.clearHeartbeatTimer();
+        this.ws = null;
+
+        if (!this.intentionalClose) {
+          this.setState("reconnecting");
+          this.scheduleReconnect();
+        } else {
+          this.setState("disconnected");
+        }
+      };
+    });
   }
 
   /**

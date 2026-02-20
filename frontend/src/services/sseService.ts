@@ -1,4 +1,4 @@
-import { getAccessToken } from "./apiClient";
+import { ensureFreshToken } from "./apiClient";
 import type { SSEEventType } from "@/types/api";
 
 export interface SSEEvent {
@@ -28,7 +28,7 @@ export function startBulkStream(
 
   (async () => {
     try {
-      const token = getAccessToken();
+      const token = await ensureFreshToken();
       const res = await fetch("/api/v1/conversions/bulk/stream", {
         method: "POST",
         headers: {

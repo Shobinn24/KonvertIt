@@ -88,6 +88,32 @@ async function doRefresh(): Promise<string> {
   return newAccessToken;
 }
 
+/**
+ * Ensure the access token is fresh (not expired or about to expire).
+ * If it's within 60s of expiry, proactively refresh it.
+ * Used by non-axios callers (SSE, WebSocket) that bypass interceptors.
+ */
+export async function ensureFreshToken(): Promise<string | null> {
+  const token = getAccessToken();
+  if (!token) return null;
+
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return token;
+    const payload = JSON.parse(atob(parts[1]!)) as { exp?: number };
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp - now > 60) return token;
+  } catch {
+    return token;
+  }
+
+  try {
+    return await doRefresh();
+  } catch {
+    return null;
+  }
+}
+
 export function extractRateLimitHeaders(
   headers: Record<string, string>,
 ): RateLimitState | null {
