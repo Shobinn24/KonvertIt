@@ -187,7 +187,7 @@ class TestAuthRequired:
     def test_conversions_create_requires_auth(self, unauthed_client):
         """POST /conversions should require auth."""
         resp = unauthed_client.post(
-            "/api/v1/conversions/",
+            "/api/v1/conversions",
             json={"url": "https://amazon.com/dp/B09C5RG6KV"},
         )
         assert resp.status_code in (401, 403)  # HTTPBearer returns 401 or 403 when no token
@@ -210,7 +210,7 @@ class TestAuthRequired:
 
     def test_conversions_list_requires_auth(self, unauthed_client):
         """GET /conversions should require auth."""
-        resp = unauthed_client.get("/api/v1/conversions/")
+        resp = unauthed_client.get("/api/v1/conversions")
         assert resp.status_code in (401, 403)
 
     def test_conversions_bulk_stream_requires_auth(self, unauthed_client):
@@ -241,7 +241,7 @@ class TestAuthRequired:
 
     def test_products_list_requires_auth(self, unauthed_client):
         """GET /products should require auth."""
-        resp = unauthed_client.get("/api/v1/products/")
+        resp = unauthed_client.get("/api/v1/products")
         assert resp.status_code in (401, 403)
 
     def test_products_detail_requires_auth(self, unauthed_client):
@@ -251,7 +251,7 @@ class TestAuthRequired:
 
     def test_listings_list_requires_auth(self, unauthed_client):
         """GET /listings should require auth."""
-        resp = unauthed_client.get("/api/v1/listings/")
+        resp = unauthed_client.get("/api/v1/listings")
         assert resp.status_code in (401, 403)
 
     def test_listings_detail_requires_auth(self, unauthed_client):
@@ -290,7 +290,7 @@ class TestListListings:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/listings/")
+            resp = client.get("/api/v1/listings")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -309,7 +309,7 @@ class TestListListings:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[listing])
 
-            resp = client.get("/api/v1/listings/")
+            resp = client.get("/api/v1/listings")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -328,7 +328,7 @@ class TestListListings:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/listings/?status=active")
+            resp = client.get("/api/v1/listings?status=active")
 
         assert resp.status_code == 200
         mock_repo.find_by_user.assert_called_once()
@@ -346,7 +346,7 @@ class TestListListings:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/listings/?limit=10&offset=20")
+            resp = client.get("/api/v1/listings?limit=10&offset=20")
 
         assert resp.status_code == 200
         call_kwargs = mock_repo.find_by_user.call_args
@@ -618,7 +618,7 @@ class TestListProducts:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/products/")
+            resp = client.get("/api/v1/products")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -637,7 +637,7 @@ class TestListProducts:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[product])
 
-            resp = client.get("/api/v1/products/")
+            resp = client.get("/api/v1/products")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -656,7 +656,7 @@ class TestListProducts:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/products/?marketplace=amazon")
+            resp = client.get("/api/v1/products?marketplace=amazon")
 
         assert resp.status_code == 200
         call_kwargs = mock_repo.find_by_user.call_args
@@ -673,7 +673,7 @@ class TestListProducts:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/products/?limit=5&offset=10")
+            resp = client.get("/api/v1/products?limit=5&offset=10")
 
         assert resp.status_code == 200
         call_kwargs = mock_repo.find_by_user.call_args
@@ -760,7 +760,7 @@ class TestListConversions:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/conversions/")
+            resp = client.get("/api/v1/conversions")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -779,7 +779,7 @@ class TestListConversions:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[conversion])
 
-            resp = client.get("/api/v1/conversions/")
+            resp = client.get("/api/v1/conversions")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -797,7 +797,7 @@ class TestListConversions:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/conversions/?status=completed")
+            resp = client.get("/api/v1/conversions?status=completed")
 
         assert resp.status_code == 200
         call_kwargs = mock_repo.find_by_user.call_args
@@ -814,7 +814,7 @@ class TestListConversions:
             mock_repo = MockRepo.return_value
             mock_repo.find_by_user = AsyncMock(return_value=[])
 
-            resp = client.get("/api/v1/conversions/?limit=10&offset=5")
+            resp = client.get("/api/v1/conversions?limit=10&offset=5")
 
         assert resp.status_code == 200
         call_kwargs = mock_repo.find_by_user.call_args
@@ -843,7 +843,7 @@ class TestConversionAuthPayload:
             "app.api.v1.conversions._conversion_service_context", _mock_ctx
         ):
             resp = client.post(
-                "/api/v1/conversions/",
+                "/api/v1/conversions",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
             )
 
@@ -961,7 +961,7 @@ class TestConversionErrorHandling:
             "app.api.v1.conversions._conversion_service_context", _mock_ctx
         ):
             resp = client.post(
-                "/api/v1/conversions/",
+                "/api/v1/conversions",
                 json={"url": "https://invalid.com"},
             )
 
@@ -986,7 +986,7 @@ class TestConversionErrorHandling:
             "app.api.v1.conversions._conversion_service_context", _mock_ctx
         ):
             resp = client.post(
-                "/api/v1/conversions/",
+                "/api/v1/conversions",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
             )
 

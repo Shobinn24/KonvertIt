@@ -109,7 +109,7 @@ def get_sse_manager() -> SSEProgressManager:
 # ─── Standard Endpoints ──────────────────────────────────
 
 
-@router.post("/", summary="Convert a product URL")
+@router.post("", summary="Convert a product URL")
 async def create_conversion(
     request: ConvertRequest,
     response: Response,
@@ -227,7 +227,7 @@ async def preview_conversion(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/", summary="List conversion history")
+@router.get("", summary="List conversion history")
 async def list_conversions(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

@@ -471,7 +471,7 @@ class TestEndpointIntegration:
 
         with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
-                "/api/v1/conversions/",
+                "/api/v1/conversions",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
             )
 
@@ -490,7 +490,7 @@ class TestEndpointIntegration:
         client = TestClient(app)
 
         resp = client.post(
-            "/api/v1/conversions/",
+            "/api/v1/conversions",
             json={"url": "https://amazon.com/dp/B09C5RG6KV"},
         )
 
@@ -561,7 +561,7 @@ class TestEndpointIntegration:
 
         with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
-                "/api/v1/conversions/",
+                "/api/v1/conversions",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
             )
 
@@ -577,7 +577,7 @@ class TestEndpointIntegration:
 
         with patch("app.api.v1.conversions.ConversionRepository") as MockRepo:
             MockRepo.return_value.find_by_user = AsyncMock(return_value=[])
-            resp = client.get("/api/v1/conversions/")
+            resp = client.get("/api/v1/conversions")
 
         assert resp.status_code == 200
         # GET endpoints should NOT have rate limit headers
@@ -656,7 +656,7 @@ class TestEndpointIntegration:
 
         with patch("app.api.v1.conversions._conversion_service_context", _mock_ctx):
             resp = client.post(
-                "/api/v1/conversions/",
+                "/api/v1/conversions",
                 json={"url": "https://amazon.com/dp/B09C5RG6KV"},
             )
 

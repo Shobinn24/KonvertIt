@@ -305,7 +305,7 @@ class TestConversionsFlowSmoke:
         result_mock.scalars.return_value.all.return_value = conversions
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/conversions/")
+        resp = client.get("/api/v1/conversions")
         assert resp.status_code == 200
         data = resp.json()
         assert "conversions" in data
@@ -320,7 +320,7 @@ class TestConversionsFlowSmoke:
         result_mock.scalars.return_value.all.return_value = conversions
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/conversions/?status=completed")
+        resp = client.get("/api/v1/conversions?status=completed")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
@@ -331,7 +331,7 @@ class TestConversionsFlowSmoke:
         result_mock.scalars.return_value.all.return_value = []
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/conversions/")
+        resp = client.get("/api/v1/conversions")
         assert resp.status_code == 200
 
     def test_conversion_response_shape(self, client, mock_session):
@@ -341,7 +341,7 @@ class TestConversionsFlowSmoke:
         result_mock.scalars.return_value.all.return_value = [conv]
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/conversions/")
+        resp = client.get("/api/v1/conversions")
         item = resp.json()["conversions"][0]
         assert "id" in item
         assert "product_id" in item
@@ -363,7 +363,7 @@ class TestListingsFlowSmoke:
         result_mock.scalars.return_value.all.return_value = listings
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/listings/")
+        resp = client.get("/api/v1/listings")
         assert resp.status_code == 200
         data = resp.json()
         assert "listings" in data
@@ -438,7 +438,7 @@ class TestProductsFlowSmoke:
         result_mock.scalars.return_value.all.return_value = products
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/products/")
+        resp = client.get("/api/v1/products")
         assert resp.status_code == 200
         data = resp.json()
         assert "products" in data
@@ -535,7 +535,7 @@ class TestErrorHandlingSmoke:
         app.dependency_overrides.pop(get_current_user, None)
         client = TestClient(app)
 
-        resp = client.get("/api/v1/conversions/")
+        resp = client.get("/api/v1/conversions")
         assert resp.status_code in (401, 403)
 
         # Restore
@@ -554,7 +554,7 @@ class TestMiddlewareSmoke:
         result_mock.scalars.return_value.all.return_value = []
         mock_session.execute = AsyncMock(return_value=result_mock)
 
-        resp = client.get("/api/v1/conversions/")
+        resp = client.get("/api/v1/conversions")
         assert resp.headers.get("X-Content-Type-Options") == "nosniff"
         assert resp.headers.get("X-Frame-Options") == "DENY"
 

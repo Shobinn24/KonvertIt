@@ -92,7 +92,7 @@ async def scrape_product(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/", summary="List scraped products")
+@router.get("", summary="List scraped products")
 async def list_products(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

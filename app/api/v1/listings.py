@@ -49,7 +49,7 @@ class UpdatePriceRequest(BaseModel):
 # ─── Endpoints ───────────────────────────────────────────────
 
 
-@router.get("/", summary="List eBay listings")
+@router.get("", summary="List eBay listings")
 async def list_listings(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
