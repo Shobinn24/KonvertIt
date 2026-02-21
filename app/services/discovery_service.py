@@ -10,7 +10,9 @@ Endpoints used:
 """
 
 import logging
+import re
 from dataclasses import asdict, dataclass
+from urllib.parse import unquote
 
 import httpx
 
@@ -20,6 +22,59 @@ logger = logging.getLogger(__name__)
 
 AMAZON_SEARCH_URL = "https://api.scraperapi.com/structured/amazon/search"
 WALMART_SEARCH_URL = "https://api.scraperapi.com/structured/walmart/search"
+
+# ASIN regex: matches /dp/ASIN or /gp/product/ASIN (10-char alphanumeric)
+_ASIN_PATTERN = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})")
+
+
+def _extract_asin(url: str) -> str | None:
+    """
+    Extract an Amazon ASIN from a URL.
+
+    Handles:
+    - Clean product URLs: /dp/B0C2C9NHZW
+    - Sponsored redirect URLs: /sspa/click?...url=%2Fdp%2FB0C2C9NHZW...
+    - URL-encoded variants in query params
+
+    Returns the ASIN string or None if not extractable.
+    """
+    # First try the raw URL
+    match = _ASIN_PATTERN.search(url)
+    if match:
+        return match.group(1)
+
+    # For /sspa/click and other redirect URLs, URL-decode and search again.
+    # These URLs embed the destination product URL in query parameters.
+    decoded = unquote(url)
+    if decoded != url:
+        match = _ASIN_PATTERN.search(decoded)
+        if match:
+            return match.group(1)
+
+    # Fallback: scan URL segments for a bare 10-char alphanumeric token
+    for part in url.split("/"):
+        # Strip query string from the segment
+        token = part.split("?")[0]
+        if re.fullmatch(r"[A-Z0-9]{10}", token):
+            return token
+
+    return None
+
+
+def _normalize_amazon_url(raw_url: str) -> str | None:
+    """
+    Normalize an Amazon URL to a clean canonical form.
+
+    Converts any Amazon URL (including sponsored redirects) to
+    https://www.amazon.com/dp/{ASIN}.
+
+    Returns the canonical URL or None if the URL can't be normalized
+    (e.g., ad tracking URLs with no embedded product info).
+    """
+    asin = _extract_asin(raw_url)
+    if asin:
+        return f"https://www.amazon.com/dp/{asin}"
+    return None
 
 
 @dataclass
@@ -119,7 +174,20 @@ class DiscoveryService:
         data = response.json()
 
         products: list[DiscoveryProduct] = []
+        skipped = 0
         for item in data.get("results", []):
+            # Normalize the URL to a clean /dp/{ASIN} form.
+            # Sponsored ads return /sspa/click?... or aax-* tracking URLs
+            # that the conversion scraper cannot process.
+            raw_url = item.get("url", "")
+            clean_url = _normalize_amazon_url(raw_url) if raw_url else None
+            if not clean_url:
+                skipped += 1
+                logger.debug(
+                    f"Skipping product with un-normalizable URL: {raw_url[:120]}"
+                )
+                continue
+
             price = item.get("price")
             if price is None:
                 # Try parsing from price_string (e.g. "$29.99")
@@ -135,7 +203,7 @@ class DiscoveryService:
                     price=price,
                     price_symbol=item.get("price_symbol", "$"),
                     image=item.get("image", ""),
-                    url=item.get("url", ""),
+                    url=clean_url,
                     stars=item.get("stars"),
                     total_reviews=item.get("total_reviews"),
                     is_prime=bool(item.get("has_prime", False)),
@@ -144,6 +212,12 @@ class DiscoveryService:
                     seller="",
                     marketplace="amazon",
                 )
+            )
+
+        if skipped:
+            logger.info(
+                f"Amazon search: skipped {skipped} products with "
+                f"un-normalizable URLs (sponsored/ad tracking)"
             )
 
         # Determine total pages from pagination data
