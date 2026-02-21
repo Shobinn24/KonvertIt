@@ -17,6 +17,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.encryption import encrypt
 from app.db.database import get_db
 from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
 from app.db.repositories.user_repo import UserRepository
@@ -247,8 +248,8 @@ async def ebay_callback(
 
     await credential_repo.create(
         user_id=user_id,
-        access_token=tokens.get("access_token", ""),
-        refresh_token=tokens.get("refresh_token", ""),
+        access_token=encrypt(tokens.get("access_token", "")),
+        refresh_token=encrypt(tokens.get("refresh_token", "")),
         token_expiry=None,  # Will be set from expires_in on next use
         sandbox_mode=settings.ebay_sandbox,
         store_name="",
