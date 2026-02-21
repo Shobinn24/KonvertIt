@@ -42,10 +42,16 @@ class EbayLister(IListable):
         access_token: str = "",
         base_url: str = "https://api.ebay.com",
         marketplace_id: str = MARKETPLACE_ID,
+        fulfillment_policy_id: str = "",
+        payment_policy_id: str = "",
+        return_policy_id: str = "",
     ):
         self._access_token = access_token
         self._base_url = base_url
         self._marketplace_id = marketplace_id
+        self._fulfillment_policy_id = fulfillment_policy_id
+        self._payment_policy_id = payment_policy_id
+        self._return_policy_id = return_policy_id
 
     def _get_headers(self) -> dict[str, str]:
         """Build authorization and content headers."""
@@ -144,9 +150,9 @@ class EbayLister(IListable):
             },
             "quantityLimitPerBuyer": 5,
             "listingPolicies": {
-                "fulfillmentPolicyId": "",
-                "paymentPolicyId": "",
-                "returnPolicyId": "",
+                "fulfillmentPolicyId": self._fulfillment_policy_id,
+                "paymentPolicyId": self._payment_policy_id,
+                "returnPolicyId": self._return_policy_id,
             },
         }
 

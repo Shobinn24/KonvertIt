@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     ebay_cert_id: str = ""
     ebay_redirect_uri: str = ""
     ebay_sandbox: bool = True
+    ebay_fulfillment_policy_id: str = ""
+    ebay_payment_policy_id: str = ""
+    ebay_return_policy_id: str = ""
 
     # ─── Proxy Configuration ─────────────────────────────────
     scraper_api_key: str = ""
