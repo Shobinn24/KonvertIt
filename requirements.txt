@@ -1,4 +1,12 @@
-# KonvertIt - Production Dependencies
+# KonvertIt — Production Dependencies
+# Source of truth: pyproject.toml [project.urls] dependencies
+#
+# To regenerate with pinned versions:
+#   pip install pip-tools
+#   pip-compile --strip-extras --output-file=requirements.txt pyproject.toml
+#
+# Dev deps are installed separately via: pip install -e ".[dev]"
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 sqlalchemy[asyncio]>=2.0.36
@@ -19,10 +27,3 @@ python-multipart>=0.0.18
 structlog>=24.4.0
 sentry-sdk[fastapi]>=2.19.0
 gunicorn>=22.0.0
-
-# Development Dependencies
-pytest>=8.3.0
-pytest-asyncio>=0.25.0
-pytest-cov>=6.0.0
-ruff>=0.8.0
-bandit>=1.8.0

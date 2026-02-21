@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     encryption_key: str = "change-me-generate-with-cryptography-fernet"
 
     # ─── Database ─────────────────────────────────────────────
+    # Pool sizing: total connections = workers × (pool_size + max_overflow)
+    # With 4 Gunicorn workers: max = 4 × (10 + 20) = 120 connections.
+    # Ensure your database max_connections >= this value.
+    # Railway / managed Postgres typically allows 20–100 — adjust accordingly
+    # or use PgBouncer.
     database_url: str = "postgresql+asyncpg://konvertit:konvertit_dev@localhost:5432/konvertit"
     database_pool_size: int = 10
     database_max_overflow: int = 20
@@ -119,6 +124,39 @@ class Settings(BaseSettings):
             self.database_url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgres://"):
             self.database_url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return self
+
+    @model_validator(mode="after")
+    def enforce_production_safety(self) -> "Settings":
+        """Block application boot if production safety invariants are violated.
+
+        Only fires when APP_ENV=production. Development and test environments
+        continue to work with placeholder defaults.
+        """
+        if self.app_env != AppEnv.PRODUCTION:
+            return self
+
+        violations: list[str] = []
+
+        if self.app_debug:
+            violations.append("APP_DEBUG must be False in production")
+
+        if len(self.secret_key) < 32 or "change-me" in self.secret_key:
+            violations.append(
+                "SECRET_KEY must be >= 32 characters and not contain 'change-me'"
+            )
+
+        if "change-me" in self.encryption_key:
+            violations.append("ENCRYPTION_KEY must not contain 'change-me'")
+
+        if not self.cors_allowed_origins.strip():
+            violations.append("CORS_ALLOWED_ORIGINS must be non-empty in production")
+
+        if violations:
+            raise ValueError(
+                "Production safety check failed:\n  - " + "\n  - ".join(violations)
+            )
+
         return self
 
     @property

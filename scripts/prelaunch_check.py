@@ -215,9 +215,68 @@ def main() -> None:
     else:
         fail("tests/ directory not found")
 
+    # ─── Dependency Sync ───────────────────────────────────
+    section("Dependency Sync (pyproject.toml vs requirements.txt)")
+
+    pyproject_path = root / "pyproject.toml"
+    reqs_path = root / "requirements.txt"
+
+    if pyproject_path.exists() and reqs_path.exists():
+        import re
+
+        # Extract base package names from pyproject.toml dependencies
+        pyproject_text = pyproject_path.read_text()
+        pyproject_deps = set()
+        in_deps = False
+        for line in pyproject_text.splitlines():
+            if line.strip().startswith("dependencies"):
+                in_deps = True
+                continue
+            if in_deps:
+                if line.strip() == "]":
+                    break
+                match = re.match(r'\s*"([a-zA-Z0-9_-]+)', line)
+                if match:
+                    pyproject_deps.add(match.group(1).lower().replace("-", "_"))
+
+        # Extract base package names from requirements.txt (skip comments)
+        reqs_deps = set()
+        for line in reqs_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                match = re.match(r"([a-zA-Z0-9_-]+)", line)
+                if match:
+                    reqs_deps.add(match.group(1).lower().replace("-", "_"))
+
+        only_in_reqs = reqs_deps - pyproject_deps
+        only_in_pyproject = pyproject_deps - reqs_deps
+
+        if not only_in_reqs and not only_in_pyproject:
+            ok("pyproject.toml and requirements.txt dependencies are in sync")
+        else:
+            if only_in_reqs:
+                warn(f"In requirements.txt but not pyproject.toml: {sorted(only_in_reqs)}")
+            if only_in_pyproject:
+                warn(f"In pyproject.toml but not requirements.txt: {sorted(only_in_pyproject)}")
+    else:
+        if not pyproject_path.exists():
+            fail("pyproject.toml not found")
+        if not reqs_path.exists():
+            fail("requirements.txt not found")
+
     # ─── CI/CD ──────────────────────────────────────────────
     section("CI/CD")
-    check_file_exists(root / ".github" / "workflows" / "ci.yml", "GitHub Actions CI workflow")
+    ci_path = root / ".github" / "workflows" / "ci.yml"
+    check_file_exists(ci_path, "GitHub Actions CI workflow")
+
+    if ci_path.exists():
+        ci_content = ci_path.read_text()
+        expected_jobs = ["lint", "test", "security", "docker"]
+        for job in expected_jobs:
+            if f"  {job}:" in ci_content:
+                ok(f"CI job '{job}' found in workflow")
+            else:
+                warn(f"CI job '{job}' not found in workflow")
 
     # ─── Summary ────────────────────────────────────────────
     print(f"\n{BOLD}{'═' * 50}{RESET}")

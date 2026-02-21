@@ -114,7 +114,7 @@ EXPECTED_HEADERS = {
     "X-XSS-Protection": "0",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 }
 
 
@@ -158,9 +158,11 @@ class TestSecurityHeadersPresence:
         assert resp.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
 
     def test_content_security_policy(self, client):
-        """CSP frame-ancestors prevents embedding in iframes."""
+        """CSP restricts all resource loading for API-only surface."""
         resp = client.get("/health")
-        assert resp.headers["Content-Security-Policy"] == "frame-ancestors 'none'"
+        assert resp.headers["Content-Security-Policy"] == (
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        )
 
 
 # ─── HSTS (Strict-Transport-Security) ────────────────────

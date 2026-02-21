@@ -25,7 +25,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     - X-XSS-Protection: 0 (modern best practice — rely on CSP)
     - Referrer-Policy: strict-origin-when-cross-origin
     - Permissions-Policy: restrict sensitive browser APIs
-    - Content-Security-Policy: frame-ancestors 'none'
+    - Content-Security-Policy: restrictive API-only policy (default-src 'none')
     - Strict-Transport-Security: only in production (HTTPS required)
     - Cache-Control: no-store for API responses
     """
@@ -45,7 +45,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=()"
         )
-        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        )
 
         # HSTS — only in production (HTTP in dev would break)
         settings = get_settings()
