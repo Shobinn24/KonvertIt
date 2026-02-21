@@ -28,8 +28,8 @@ function HeroSection() {
         />
 
         <h1 className="text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl">
-          Stop Copy-Pasting.{" "}
-          <span className="text-gradient">Start Selling.</span>
+          More Listings. More Sales.{" "}
+          <span className="text-gradient">Less Work.</span>
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl">
