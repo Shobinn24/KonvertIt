@@ -11,6 +11,8 @@ interface DiscoverResultsProps {
   page: number;
   totalPages: number | null;
   onPageChange: (page: number) => void;
+  selectedUrls: Set<string>;
+  onToggleSelect: (product: DiscoveryProduct) => void;
 }
 
 export function DiscoverResults({
@@ -20,6 +22,8 @@ export function DiscoverResults({
   page,
   totalPages,
   onPageChange,
+  selectedUrls,
+  onToggleSelect,
 }: DiscoverResultsProps) {
   if (error) return <ErrorAlert error={error} />;
 
@@ -52,7 +56,12 @@ export function DiscoverResults({
       {/* Results grid */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {products.map((product, i) => (
-          <ProductCard key={`${product.url}-${i}`} product={product} />
+          <ProductCard
+            key={`${product.url}-${i}`}
+            product={product}
+            selected={selectedUrls.has(product.url)}
+            onToggleSelect={onToggleSelect}
+          />
         ))}
       </div>
 

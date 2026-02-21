@@ -13,12 +13,19 @@ import {
 interface SearchBarProps {
   onSearch: (query: string, marketplace: "amazon" | "walmart") => void;
   isLoading: boolean;
+  initialQuery?: string;
+  initialMarketplace?: "amazon" | "walmart";
 }
 
-export function SearchBar({ onSearch, isLoading }: SearchBarProps) {
-  const [query, setQuery] = useState("");
+export function SearchBar({
+  onSearch,
+  isLoading,
+  initialQuery = "",
+  initialMarketplace = "amazon",
+}: SearchBarProps) {
+  const [query, setQuery] = useState(initialQuery);
   const [marketplace, setMarketplace] = useState<"amazon" | "walmart">(
-    "amazon"
+    initialMarketplace,
   );
 
   const handleSubmit = (e: React.FormEvent) => {

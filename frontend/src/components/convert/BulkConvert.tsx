@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Play, Square } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
@@ -8,10 +14,25 @@ interface BulkConvertProps {
   onStart: (urls: string[]) => void;
   onCancel: () => void;
   isStreaming: boolean;
+  initialUrls?: string[];
 }
 
-export function BulkConvert({ onStart, onCancel, isStreaming }: BulkConvertProps) {
-  const [text, setText] = useState("");
+export function BulkConvert({
+  onStart,
+  onCancel,
+  isStreaming,
+  initialUrls = [],
+}: BulkConvertProps) {
+  const [text, setText] = useState(
+    initialUrls.length > 0 ? initialUrls.join("\n") : "",
+  );
+
+  // Update text when initialUrls changes (e.g., navigating from Discover)
+  useEffect(() => {
+    if (initialUrls.length > 0) {
+      setText(initialUrls.join("\n"));
+    }
+  }, [initialUrls.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const urls = text
     .split("\n")
@@ -33,7 +54,9 @@ export function BulkConvert({ onStart, onCancel, isStreaming }: BulkConvertProps
       </CardHeader>
       <CardContent className="space-y-4">
         <Textarea
-          placeholder={"https://www.amazon.com/dp/B0...\nhttps://www.walmart.com/ip/..."}
+          placeholder={
+            "https://www.amazon.com/dp/B0...\nhttps://www.walmart.com/ip/..."
+          }
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={isStreaming}

@@ -12,15 +12,25 @@ import type { ConversionResult } from "@/types/api";
 export function ConvertPage() {
   const [searchParams] = useSearchParams();
   const prefillUrl = searchParams.get("url") || "";
+  const prefillUrls = searchParams.getAll("urls");
+  const tabParam = searchParams.get("tab");
+
+  // Auto-select bulk tab when multiple URLs arrive from Discover
+  const initialTab =
+    tabParam === "bulk" || prefillUrls.length > 0 ? "bulk" : "single";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
   const [preview, setPreview] = useState<ConversionResult | null>(null);
-  const [selectedBulkIndex, setSelectedBulkIndex] = useState<number | null>(null);
+  const [selectedBulkIndex, setSelectedBulkIndex] = useState<number | null>(
+    null,
+  );
   const bulk = useBulkStream();
 
   // Auto-select first completed item when bulk job finishes
   useEffect(() => {
     if (bulk.state.phase === "done" && !preview) {
       const firstCompleted = bulk.state.items.findIndex(
-        (item) => item.status === "completed" && item.result
+        (item) => item.status === "completed" && item.result,
       );
       if (firstCompleted >= 0) {
         const item = bulk.state.items[firstCompleted];
@@ -51,7 +61,7 @@ export function ConvertPage() {
         <div className="grid gap-6 lg:grid-cols-5">
           {/* Left column: conversion forms */}
           <div className="space-y-6 lg:col-span-3">
-            <Tabs defaultValue="single">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="single">Single</TabsTrigger>
                 <TabsTrigger value="bulk">Bulk</TabsTrigger>
@@ -66,6 +76,7 @@ export function ConvertPage() {
                   onStart={bulk.start}
                   onCancel={bulk.cancel}
                   isStreaming={bulk.state.phase === "streaming"}
+                  initialUrls={prefillUrls}
                 />
                 <BulkProgress
                   state={bulk.state}

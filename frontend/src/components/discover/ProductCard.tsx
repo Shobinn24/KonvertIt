@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Star, ArrowRight } from "lucide-react";
+import { Star, ArrowRight, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,17 +7,32 @@ import type { DiscoveryProduct } from "@/types/api";
 
 interface ProductCardProps {
   product: DiscoveryProduct;
+  selected?: boolean;
+  onToggleSelect?: (product: DiscoveryProduct) => void;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({
+  product,
+  selected = false,
+  onToggleSelect,
+}: ProductCardProps) {
   const navigate = useNavigate();
 
   const handleConvert = () => {
     navigate(`/convert?url=${encodeURIComponent(product.url)}`);
   };
 
+  const handleCheckbox = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleSelect?.(product);
+  };
+
   return (
-    <Card className="overflow-hidden transition-shadow hover:shadow-md">
+    <Card
+      className={`overflow-hidden transition-all hover:shadow-md ${
+        selected ? "ring-2 ring-primary shadow-md" : ""
+      }`}
+    >
       {/* Product image */}
       <div className="relative aspect-square bg-gray-50">
         {product.image ? (
@@ -31,6 +46,21 @@ export function ProductCard({ product }: ProductCardProps) {
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             No image
           </div>
+        )}
+
+        {/* Selection checkbox — top right */}
+        {onToggleSelect && (
+          <button
+            type="button"
+            onClick={handleCheckbox}
+            className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md border-2 transition-colors ${
+              selected
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-gray-300 bg-white/90 hover:border-primary"
+            }`}
+          >
+            {selected && <Check className="h-4 w-4" />}
+          </button>
         )}
 
         {/* Badges overlay */}
