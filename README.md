@@ -5,6 +5,10 @@ product listings into optimized eBay listing drafts.
 
 Built by **E-Clarx LLC**.
 
+<p align="center">
+  <img src="screenshot.png" alt="KonvertIt Landing Page" width="700" />
+</p>
+
 ## Features
 
 - **Multi-Marketplace Scraping** — Extract product data from Amazon and Walmart via
@@ -159,7 +163,7 @@ KonvertIt/
 ## Testing
 
 ```bash
-# Full suite (811 tests)
+# Full suite (845 tests)
 make test
 
 # Unit tests only
