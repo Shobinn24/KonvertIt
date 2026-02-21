@@ -5,14 +5,16 @@ Provides:
 - GET /api/v1/users/me — Current user profile
 - PUT /api/v1/users/me — Update profile (email, password)
 - GET /api/v1/users/me/usage — Usage stats and tier limits
+- PUT /api/v1/users/admin/set-tier — Admin: set a user's tier (requires secret key)
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.database import get_db
 from app.db.repositories.conversion_repo import ConversionRepository
 from app.db.repositories.listing_repo import ListingRepository
@@ -51,6 +53,12 @@ class UsageStatsResponse(BaseModel):
     conversions: dict
     listings: dict
     limits: dict
+
+
+class SetTierRequest(BaseModel):
+    """Admin request to set a user's tier."""
+    email: EmailStr
+    tier: str = Field(..., pattern="^(free|pro|enterprise)$")
 
 
 # ─── Endpoints ───────────────────────────────────────────────
@@ -168,4 +176,59 @@ async def get_usage_stats(
         conversions=conversion_counts,
         listings=listing_counts,
         limits=limits,
+    )
+
+
+# ─── Admin Endpoints ────────────────────────────────────────
+
+
+@router.put(
+    "/admin/set-tier",
+    response_model=UserProfileResponse,
+    summary="Admin: set a user's subscription tier",
+)
+async def admin_set_tier(
+    body: SetTierRequest,
+    x_admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Set a user's subscription tier (free, pro, enterprise).
+
+    Requires the application secret key in the X-Admin-Key header.
+    This is an admin-only endpoint — not exposed in the frontend.
+    """
+    settings = get_settings()
+    if x_admin_key != settings.secret_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin key",
+        )
+
+    user_repo = UserRepository(db)
+    db_user = await user_repo.find_by_email(body.email)
+
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User '{body.email}' not found",
+        )
+
+    updated = await user_repo.update(db_user.id, tier=body.tier)
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update tier",
+        )
+
+    logger.info(f"Admin set tier for {body.email}: {body.tier}")
+
+    return UserProfileResponse(
+        id=str(updated.id),
+        email=updated.email,
+        tier=updated.tier,
+        is_active=updated.is_active,
+        created_at=updated.created_at.isoformat() if updated.created_at else None,
+        last_login=updated.last_login.isoformat() if updated.last_login else None,
     )
