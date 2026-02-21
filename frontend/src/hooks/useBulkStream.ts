@@ -114,7 +114,7 @@ export function useBulkStream() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const abortRef = useRef<(() => void) | null>(null);
 
-  const start = useCallback((urls: string[]) => {
+  const start = useCallback((urls: string[], options?: { publish?: boolean; sellPrice?: number }) => {
     // Cancel any existing stream
     abortRef.current?.();
 
@@ -171,7 +171,7 @@ export function useBulkStream() {
       // (job_completed event handles the normal done case)
     };
 
-    abortRef.current = startBulkStream(urls, handleEvent, handleError, handleDone);
+    abortRef.current = startBulkStream(urls, handleEvent, handleError, handleDone, options);
   }, []);
 
   const cancel = useCallback(() => {

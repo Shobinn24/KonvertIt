@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { TopBar } from "@/components/layout/TopBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SingleConvert } from "@/components/convert/SingleConvert";
-import { BulkConvert } from "@/components/convert/BulkConvert";
+import { BulkConvert, type BulkConvertOptions } from "@/components/convert/BulkConvert";
 import { PreviewPanel } from "@/components/convert/PreviewPanel";
 import { BulkProgress } from "@/components/convert/BulkProgress";
 import { useBulkStream } from "@/hooks/useBulkStream";
@@ -48,6 +48,13 @@ export function ConvertPage() {
     setPreview(result as ConversionResult);
   };
 
+  const handleBulkStart = (urls: string[], options: BulkConvertOptions) => {
+    bulk.start(urls, {
+      publish: options.publish,
+      sellPrice: options.sellPrice,
+    });
+  };
+
   const handleBulkReset = () => {
     bulk.reset();
     setPreview(null);
@@ -73,7 +80,7 @@ export function ConvertPage() {
 
               <TabsContent value="bulk" className="space-y-4">
                 <BulkConvert
-                  onStart={bulk.start}
+                  onStart={handleBulkStart}
                   onCancel={bulk.cancel}
                   isStreaming={bulk.state.phase === "streaming"}
                   initialUrls={prefillUrls}
