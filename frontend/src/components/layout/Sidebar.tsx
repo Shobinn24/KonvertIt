@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
@@ -35,7 +35,9 @@ export function Sidebar() {
     <aside className="sidebar-glass flex h-screen w-64 flex-col">
       {/* Logo */}
       <div className="flex h-16 items-center px-5">
-        <img src="/logo.jpg" alt="KonvertIt" className="h-9 w-auto" />
+        <Link to="/">
+          <img src="/logo.jpg" alt="KonvertIt" className="h-9 w-auto" />
+        </Link>
       </div>
 
       <div className="mx-4 h-px bg-darkBorder" />
