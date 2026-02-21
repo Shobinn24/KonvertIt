@@ -12,7 +12,7 @@ interface StatCardProps {
 
 export function StatCard({ title, value, icon: Icon, description, className }: StatCardProps) {
   return (
-    <Card className={cn("", className)}>
+    <Card className={cn("card-hover-glow", className)}>
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-1">
@@ -22,8 +22,8 @@ export function StatCard({ title, value, icon: Icon, description, className }: S
               <p className="text-xs text-muted-foreground">{description}</p>
             )}
           </div>
-          <div className="rounded-md bg-primary/10 p-3">
-            <Icon className="h-5 w-5 text-primary" />
+          <div className="rounded-md bg-accentPurple/10 p-3">
+            <Icon className="h-5 w-5 text-accentPurple" />
           </div>
         </div>
       </CardContent>

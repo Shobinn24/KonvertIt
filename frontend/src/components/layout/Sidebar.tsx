@@ -9,13 +9,12 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useLogout } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/discover", icon: Search, label: "Discover" },
   { to: "/convert", icon: ArrowRightLeft, label: "Convert" },
   { to: "/listings", icon: List, label: "Listings" },
@@ -23,9 +22,9 @@ const navItems = [
 ];
 
 const tierColors: Record<string, string> = {
-  free: "bg-gray-100 text-gray-700",
-  pro: "bg-blue-100 text-blue-700",
-  enterprise: "bg-purple-100 text-purple-700",
+  free: "bg-darkBorder text-gray-300",
+  pro: "bg-accentBlue/20 text-accentBlue",
+  enterprise: "bg-accentPurple/20 text-accentPurple",
 };
 
 export function Sidebar() {
@@ -33,15 +32,13 @@ export function Sidebar() {
   const logout = useLogout();
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r bg-card">
+    <aside className="sidebar-glass flex h-screen w-64 flex-col">
       {/* Logo */}
-      <div className="flex h-16 items-center px-6">
-        <span className="text-xl font-bold tracking-tight">
-          Konvert<span className="text-primary">It</span>
-        </span>
+      <div className="flex h-16 items-center px-5">
+        <img src="/logo.jpg" alt="KonvertIt" className="h-9 w-auto" />
       </div>
 
-      <Separator />
+      <div className="mx-4 h-px bg-darkBorder" />
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4">
@@ -49,13 +46,13 @@ export function Sidebar() {
           <NavLink
             key={to}
             to={to}
-            end={to === "/"}
+            end={to === "/dashboard"}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                 isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  ? "bg-accentPurple/15 text-accentPurple"
+                  : "text-muted-foreground hover:bg-darkBorder/50 hover:text-foreground",
               )
             }
           >
@@ -65,7 +62,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <Separator />
+      <div className="mx-4 h-px bg-darkBorder" />
 
       {/* User info */}
       <div className="p-4">
@@ -73,7 +70,9 @@ export function Sidebar() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{user.email}</p>
+                <p className="truncate text-sm font-medium text-foreground">
+                  {user.email}
+                </p>
               </div>
               <Badge
                 variant="secondary"
@@ -85,7 +84,7 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start gap-2 text-muted-foreground"
+              className="w-full justify-start gap-2 text-muted-foreground hover:bg-darkBorder/50 hover:text-foreground"
               onClick={logout}
             >
               <LogOut className="h-4 w-4" />

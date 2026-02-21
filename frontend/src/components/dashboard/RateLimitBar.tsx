@@ -10,9 +10,9 @@ interface RateLimitBarProps {
 }
 
 const tierColors: Record<string, string> = {
-  free: "bg-gray-100 text-gray-700",
-  pro: "bg-blue-100 text-blue-700",
-  enterprise: "bg-purple-100 text-purple-700",
+  free: "bg-darkBorder text-gray-300",
+  pro: "bg-accentBlue/20 text-accentBlue",
+  enterprise: "bg-accentPurple/20 text-accentPurple",
 };
 
 export function RateLimitBar({ used, limit, tier }: RateLimitBarProps) {

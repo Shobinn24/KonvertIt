@@ -30,7 +30,7 @@ export function LoginForm() {
     loginMutation.mutate(data, {
       onSuccess: (res) => {
         authLogin(res.access_token, res.refresh_token, res.user);
-        const from = (location.state as { from?: string })?.from ?? "/";
+        const from = (location.state as { from?: string })?.from ?? "/dashboard";
         navigate(from, { replace: true });
       },
     });

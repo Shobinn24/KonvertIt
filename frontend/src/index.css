@@ -4,29 +4,30 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    /* Dark-first brand theme — matches logo colors */
+    --background: 220 30% 5%;         /* #0B0E14 */
+    --foreground: 210 20% 90%;        /* light gray text */
+    --card: 220 20% 9%;               /* #151921 */
+    --card-foreground: 210 20% 90%;
+    --popover: 220 20% 9%;
+    --popover-foreground: 210 20% 90%;
+    --primary: 263 84% 58%;           /* #7C3AED — accentPurple */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 18% 14%;
+    --secondary-foreground: 210 20% 90%;
+    --muted: 220 18% 14%;
+    --muted-foreground: 215 15% 55%;
+    --accent: 220 18% 14%;
+    --accent-foreground: 210 20% 90%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 15% 18%;            /* #262C36 */
+    --input: 220 15% 18%;
+    --ring: 263 84% 58%;              /* purple ring */
     --radius: 0.5rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
+    --chart-1: 263 84% 58%;
+    --chart-2: 187 100% 50%;
+    --chart-3: 142 72% 45%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
   }
@@ -36,32 +37,93 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+
+  /* Force dark scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0B0E14;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #262C36;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a4250;
+  }
+}
+
+@layer components {
+  /* Glassmorphism effect for sidebar */
+  .sidebar-glass {
+    @apply backdrop-blur-md border-r border-darkBorder;
+    background-color: rgba(21, 25, 33, 0.8);
+  }
+
+  /* Neon glow for action buttons */
+  .btn-glow {
+    @apply transition-all duration-300;
+    box-shadow: 0 0 10px rgba(124, 58, 237, 0.3);
+  }
+  .btn-glow:hover {
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.6);
+    transform: translateY(-1px);
+  }
+
+  /* Cyan variant glow */
+  .btn-glow-cyan {
+    @apply transition-all duration-300;
+    box-shadow: 0 0 10px rgba(0, 209, 255, 0.3);
+  }
+  .btn-glow-cyan:hover {
+    box-shadow: 0 0 20px rgba(0, 209, 255, 0.6);
+    transform: translateY(-1px);
+  }
+
+  /* Status indicator glows */
+  .status-dot-green {
+    @apply w-2 h-2 rounded-full bg-emerald-500;
+    box-shadow: 0 0 8px #10b981;
+  }
+
+  /* Card hover glow effect */
+  .card-hover-glow {
+    @apply transition-all duration-300;
+  }
+  .card-hover-glow:hover {
+    border-color: rgba(124, 58, 237, 0.4);
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.1);
+  }
+
+  /* Gradient text for hero headings */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #00D1FF, #7C3AED);
+  }
+
+  /* Animated gradient background line */
+  .gradient-line {
+    background: linear-gradient(90deg, #00D1FF, #7C3AED, #00D1FF);
+    background-size: 200% 100%;
+    animation: shimmer 3s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  /* Pulse animation for the hero CTA */
+  .pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 10px rgba(124, 58, 237, 0.3); }
+    50% { box-shadow: 0 0 25px rgba(124, 58, 237, 0.6); }
   }
 }
