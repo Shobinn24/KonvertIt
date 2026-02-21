@@ -9,6 +9,7 @@ import { ConvertPage } from "@/pages/ConvertPage";
 import { ListingsPage } from "@/pages/ListingsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { DiscoverPage } from "@/pages/DiscoverPage";
+import { HelpPage } from "@/pages/HelpPage";
 
 const router = createBrowserRouter([
   {
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
           { path: "convert", element: <ConvertPage /> },
           { path: "listings", element: <ListingsPage /> },
           { path: "settings", element: <SettingsPage /> },
+          { path: "help", element: <HelpPage /> },
         ],
       },
     ],
