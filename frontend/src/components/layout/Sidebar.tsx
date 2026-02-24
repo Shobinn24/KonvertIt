@@ -5,6 +5,7 @@ import {
   ArrowRightLeft,
   List,
   Settings,
+  HelpCircle,
   LogOut,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/convert", icon: ArrowRightLeft, label: "Convert" },
   { to: "/listings", icon: List, label: "Listings" },
   { to: "/settings", icon: Settings, label: "Settings" },
+  { to: "/help", icon: HelpCircle, label: "Help" },
 ];
 
 const tierColors: Record<string, string> = {
