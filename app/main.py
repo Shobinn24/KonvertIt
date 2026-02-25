@@ -49,6 +49,8 @@ def create_app() -> FastAPI:
     # 2. Initialize Stripe API key once at startup (avoids per-request assignment)
     if settings.stripe_secret_key:
         stripe.api_key = settings.stripe_secret_key
+    elif settings.is_production:
+        logger.warning("STRIPE_SECRET_KEY not set — billing endpoints will fail")
 
     # 3. Initialize Sentry (before app creation so ASGI integration hooks in)
     init_sentry(
