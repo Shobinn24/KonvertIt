@@ -185,6 +185,7 @@ export type WSEventType =
   | "listing_updated"
   | "conversion_complete"
   | "rate_limit_warning"
+  | "tier_changed"
   | "heartbeat"
   | "error";
 

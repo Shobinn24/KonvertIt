@@ -158,20 +158,26 @@ async def login(
     response_model=TokenResponse,
     summary="Refresh access token",
 )
-async def refresh(body: RefreshRequest):
+async def refresh(
+    body: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Exchange a valid refresh token for a new access token.
 
     The refresh token itself is not rotated — it remains valid
     until its original expiration (7 days).
+
+    Reads the current tier from the database so Stripe webhook
+    tier changes are reflected in the new access token.
     """
     service = UserService(
-        user_repo=None,  # type: ignore — repo not needed for token ops
+        user_repo=UserRepository(db),
         settings=get_settings(),
     )
 
     try:
-        result = service.refresh_access_token(body.refresh_token)
+        result = await service.refresh_access_token(body.refresh_token)
         return result
     except TokenError as e:
         raise HTTPException(

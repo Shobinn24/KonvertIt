@@ -329,7 +329,7 @@ const tiers = [
       "Custom integrations",
       "Dedicated support",
     ],
-    cta: "Contact Sales",
+    cta: "Get Enterprise",
     highlight: false,
   },
 ];

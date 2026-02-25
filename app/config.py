@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     cache_ttl_default: int = 300  # Default Redis cache TTL in seconds
     gzip_minimum_size: int = 500  # Min response bytes for gzip compression
 
+    # ─── Stripe Billing ────────────────────────────────────────
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_price_id: str = ""
+    stripe_enterprise_price_id: str = ""
+
     # ─── CORS ────────────────────────────────────────────────
     cors_allowed_origins: str = ""  # Comma-separated origins for production
 
@@ -154,6 +160,12 @@ class Settings(BaseSettings):
 
         if not self.cors_allowed_origins.strip():
             violations.append("CORS_ALLOWED_ORIGINS must be non-empty in production")
+
+        if not self.stripe_secret_key or self.stripe_secret_key.startswith("sk_test_your"):
+            violations.append("STRIPE_SECRET_KEY must be set in production")
+
+        if not self.stripe_webhook_secret or self.stripe_webhook_secret.startswith("whsec_your"):
+            violations.append("STRIPE_WEBHOOK_SECRET must be set in production")
 
         if violations:
             raise ValueError(

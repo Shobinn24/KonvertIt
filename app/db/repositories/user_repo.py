@@ -42,6 +42,12 @@ class UserRepository(BaseRepository[User]):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def find_by_stripe_customer_id(self, stripe_customer_id: str) -> User | None:
+        """Find a user by their Stripe customer ID."""
+        stmt = select(User).where(User.stripe_customer_id == stripe_customer_id)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def update_last_login(self, user_id: uuid.UUID) -> None:
         """Update the last_login timestamp for a user."""
         from datetime import datetime

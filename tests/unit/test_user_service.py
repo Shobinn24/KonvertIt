@@ -242,7 +242,7 @@ class TestTokenRefresh:
     async def test_refresh_success(self, service, settings):
         """Should issue new access token from valid refresh token."""
         reg = await service.register("refresh@example.com", "securepass123")
-        result = service.refresh_access_token(reg["refresh_token"])
+        result = await service.refresh_access_token(reg["refresh_token"])
 
         assert "access_token" in result
         assert result["token_type"] == "bearer"
@@ -262,14 +262,16 @@ class TestTokenRefresh:
         reg = await service.register("test@example.com", "securepass123")
 
         with pytest.raises(TokenError, match="expected refresh token"):
-            service.refresh_access_token(reg["access_token"])
+            await service.refresh_access_token(reg["access_token"])
 
-    def test_refresh_with_invalid_token(self, service):
+    @pytest.mark.asyncio
+    async def test_refresh_with_invalid_token(self, service):
         """Should reject invalid/malformed tokens."""
         with pytest.raises(TokenError, match="Invalid or expired"):
-            service.refresh_access_token("not-a-valid-token")
+            await service.refresh_access_token("not-a-valid-token")
 
-    def test_refresh_with_expired_token(self, service, settings):
+    @pytest.mark.asyncio
+    async def test_refresh_with_expired_token(self, service, settings):
         """Should reject expired refresh tokens."""
         # Create a token that's already expired
         expired_payload = {
@@ -287,7 +289,7 @@ class TestTokenRefresh:
         )
 
         with pytest.raises(TokenError, match="Invalid or expired"):
-            service.refresh_access_token(expired_token)
+            await service.refresh_access_token(expired_token)
 
 
 # ─── Token Verification Tests ────────────────────────────────

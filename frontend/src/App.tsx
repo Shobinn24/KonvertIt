@@ -10,6 +10,7 @@ import { ListingsPage } from "@/pages/ListingsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { DiscoverPage } from "@/pages/DiscoverPage";
 import { HelpPage } from "@/pages/HelpPage";
+import { CheckoutSuccessPage } from "@/pages/CheckoutSuccessPage";
 
 const router = createBrowserRouter([
   {
@@ -36,6 +37,7 @@ const router = createBrowserRouter([
           { path: "listings", element: <ListingsPage /> },
           { path: "settings", element: <SettingsPage /> },
           { path: "help", element: <HelpPage /> },
+          { path: "billing/success", element: <CheckoutSuccessPage /> },
         ],
       },
     ],

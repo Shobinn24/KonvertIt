@@ -75,8 +75,14 @@ function formatRateLimitWarning(data: Record<string, unknown>): {
   };
 }
 
+const tierLabels: Record<string, string> = {
+  free: "Starter",
+  pro: "Hustler",
+  enterprise: "Enterprise",
+};
+
 export function WebSocketToast() {
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, updateUser } = useAuthContext();
   const { lastEvent } = useWebSocket();
   const { toast } = useToast();
 
@@ -111,6 +117,18 @@ export function WebSocketToast() {
           variant: "destructive",
         };
         break;
+      case "tier_changed": {
+        const newTier = lastEvent.data.new_tier as string;
+        const validTiers: ReadonlyArray<string> = ["free", "pro", "enterprise"];
+        if (validTiers.includes(newTier)) {
+          updateUser({ tier: newTier as "free" | "pro" | "enterprise" });
+          toastData = {
+            title: "Plan updated",
+            description: `You're now on the ${tierLabels[newTier] ?? newTier} plan`,
+          };
+        }
+        break;
+      }
       // welcome, heartbeat, error — no toast
     }
 

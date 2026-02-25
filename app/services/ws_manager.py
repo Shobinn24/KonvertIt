@@ -38,6 +38,7 @@ class WSEventType(StrEnum):
     LISTING_UPDATED = "listing_updated"
     CONVERSION_COMPLETE = "conversion_complete"
     RATE_LIMIT_WARNING = "rate_limit_warning"
+    TIER_CHANGED = "tier_changed"
     HEARTBEAT = "heartbeat"
     ERROR = "error"
 

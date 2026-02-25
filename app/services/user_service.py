@@ -65,7 +65,7 @@ class UserService:
         service = UserService(user_repo)
         tokens = await service.register("user@example.com", "securepass123")
         tokens = await service.authenticate("user@example.com", "securepass123")
-        new_tokens = service.refresh_access_token(refresh_token)
+        new_tokens = await service.refresh_access_token(refresh_token)
     """
 
     BCRYPT_ROUNDS = 12
@@ -206,9 +206,13 @@ class UserService:
 
     # ─── Token Refresh ───────────────────────────────────────
 
-    def refresh_access_token(self, refresh_token: str) -> dict:
+    async def refresh_access_token(self, refresh_token: str) -> dict:
         """
         Generate a new access token from a valid refresh token.
+
+        If a user repository is available, reads the current tier from
+        the database (handles Stripe webhook tier changes). Falls back
+        to the tier stored in the refresh token if no repo is available.
 
         Args:
             refresh_token: A valid refresh token.
@@ -228,11 +232,20 @@ class UserService:
         if payload.get("type") != TOKEN_TYPE_REFRESH:
             raise TokenError("Invalid token type — expected refresh token")
 
-        # Issue new access token with same claims
+        # Read current tier from DB if repo available (handles Stripe updates)
+        current_tier = payload.get("tier", "free")
+        if self._repo is not None:
+            try:
+                user = await self._repo.get_by_id(uuid.UUID(payload["sub"]))
+                if user:
+                    current_tier = user.tier
+            except Exception:
+                pass  # Fall back to JWT tier on DB errors
+
         access_token = self._create_token(
             user_id=payload["sub"],
             email=payload.get("email", ""),
-            tier=payload.get("tier", "free"),
+            tier=current_tier,
             token_type=TOKEN_TYPE_ACCESS,
         )
 

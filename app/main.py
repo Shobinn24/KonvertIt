@@ -5,6 +5,7 @@ KonvertIt FastAPI application entry point.
 import logging
 from contextlib import asynccontextmanager
 
+import stripe
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -45,7 +46,11 @@ def create_app() -> FastAPI:
         log_format=settings.log_format,
     )
 
-    # 2. Initialize Sentry (before app creation so ASGI integration hooks in)
+    # 2. Initialize Stripe API key once at startup (avoids per-request assignment)
+    if settings.stripe_secret_key:
+        stripe.api_key = settings.stripe_secret_key
+
+    # 3. Initialize Sentry (before app creation so ASGI integration hooks in)
     init_sentry(
         dsn=settings.sentry_dsn,
         app_env=settings.app_env,
@@ -84,6 +89,10 @@ def create_app() -> FastAPI:
         {
             "name": "Discovery",
             "description": "Search for products on Amazon and Walmart by keyword.",
+        },
+        {
+            "name": "Billing",
+            "description": "Stripe subscription checkout, portal, and status.",
         },
         {
             "name": "WebSocket",
@@ -142,7 +151,7 @@ def create_app() -> FastAPI:
     )
 
     # Register API routers (triggers database module import)
-    from app.api.v1 import auth, conversions, discovery, listings, price_history, products, users, ws
+    from app.api.v1 import auth, billing, conversions, discovery, listings, price_history, products, users, webhooks, ws
     from app.db.database import get_db
 
     # Enhanced health check with DB and Redis probes
@@ -169,6 +178,8 @@ def create_app() -> FastAPI:
     app.include_router(price_history.router, prefix="/api/v1")
     app.include_router(ws.router, prefix="/api/v1")
     app.include_router(discovery.router, prefix="/api/v1")
+    app.include_router(billing.router, prefix="/api/v1")
+    app.include_router(webhooks.router, prefix="/api/v1")
 
     # Register global exception handlers (after routers)
     from app.middleware.exception_handler import register_exception_handlers
