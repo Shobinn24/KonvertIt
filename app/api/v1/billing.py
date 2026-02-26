@@ -104,7 +104,7 @@ async def create_checkout(
         logger.error(f"Checkout session creation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to create checkout session",
+            detail=f"Failed to create checkout session: {e}",
         )
 
 
