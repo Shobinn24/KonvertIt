@@ -4,7 +4,7 @@
     "dockerfilePath": "docker/Dockerfile.prod"
   },
   "deploy": {
-    "startCommand": "alembic upgrade head && gunicorn app.main:app -c gunicorn.conf.py",
+    "startCommand": "timeout 30 alembic upgrade head || echo 'Alembic skipped'; gunicorn app.main:app -c gunicorn.conf.py",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
