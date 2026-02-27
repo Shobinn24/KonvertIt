@@ -187,12 +187,21 @@ class BillingService:
             }
         except stripe.error.InvalidRequestError:
             # Subscription no longer exists in Stripe
+            logger.warning(
+                f"Stripe subscription {user.stripe_subscription_id} not found for user {user_id}"
+            )
             return {
                 "tier": user.tier,
                 "status": "canceled",
                 "current_period_end": None,
                 "cancel_at_period_end": False,
             }
+        except stripe.error.StripeError as e:
+            # Any other Stripe SDK error (auth, connection, rate-limit, etc.)
+            logger.error(
+                f"Stripe error retrieving subscription {user.stripe_subscription_id}: {e}"
+            )
+            raise BillingError(f"Stripe API error: {e}")
 
     # ─── Webhook Handlers ─────────────────────────────────────
 

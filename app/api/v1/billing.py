@@ -170,3 +170,9 @@ async def get_subscription(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=e.message,
         )
+    except Exception as e:
+        logger.error(f"Subscription status retrieval failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to retrieve subscription status: {e}",
+        )
