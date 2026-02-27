@@ -86,22 +86,26 @@ class WalmartScraper(BaseScraper):
     async def _scrape_via_scraperapi(self, api_key: str, url: str) -> ScrapedProduct:
         """Fetch Walmart page HTML via ScraperAPI httpx, then parse it.
 
+        Uses premium=true (residential proxies) to bypass Walmart's PerimeterX
+        bot protection. Costs 10 credits/request (requires Hobby plan or above).
+
         Note: ScraperAPI may pass through Walmart's HTTP status codes (404/500)
         even when page HTML is returned. We accept any response with substantial
-        content and attempt parsing. Walmart is a "protected domain" on ScraperAPI —
-        the trial plan may not be able to scrape it successfully.
+        content and attempt parsing.
         """
         proxy = await self._proxy_manager.get_proxy()
         clean_url = self._clean_url(url)
 
         try:
             # No render=true needed — Walmart embeds all product data in
-            # __NEXT_DATA__ server-side JSON. Basic mode is 1 credit (vs 5 for
-            # render) and returns 200 reliably on the trial plan.
+            # __NEXT_DATA__ server-side JSON. premium=true uses residential
+            # proxies to bypass Walmart's PerimeterX bot protection (10
+            # credits/request vs 1 for basic, but basic gets CAPTCHA-blocked).
             scraperapi_url = (
                 f"https://api.scraperapi.com"
                 f"?api_key={api_key}"
                 f"&url={quote(clean_url, safe='')}"
+                f"&premium=true"
             )
 
             async with httpx.AsyncClient(timeout=60.0) as client:
