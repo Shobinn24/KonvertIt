@@ -181,9 +181,9 @@ class BillingService:
             subscription = stripe.Subscription.retrieve(user.stripe_subscription_id)
             return {
                 "tier": user.tier,
-                "status": subscription.status,
-                "current_period_end": subscription.current_period_end,
-                "cancel_at_period_end": subscription.cancel_at_period_end,
+                "status": subscription.get("status", "unknown"),
+                "current_period_end": subscription.get("current_period_end"),
+                "cancel_at_period_end": subscription.get("cancel_at_period_end", False),
             }
         except stripe.error.InvalidRequestError:
             # Subscription no longer exists in Stripe
