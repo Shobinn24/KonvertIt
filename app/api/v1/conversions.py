@@ -24,10 +24,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.converters.ebay_converter import EbayConverter
+from app.core.encryption import decrypt
 from app.core.exceptions import ConversionError, KonvertItError
 from app.db.database import get_db
 from app.db.repositories.conversion_repo import ConversionRepository
+from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
+from app.listers.ebay_lister import EbayLister
 from app.middleware.auth_middleware import get_current_user
 from app.middleware.rate_limiter import (
     RateLimitInfo,
@@ -76,22 +80,62 @@ class PreviewRequest(BaseModel):
 # ─── Helpers ──────────────────────────────────────────────
 
 
+async def _get_ebay_lister(user_id: str, db: AsyncSession) -> EbayLister | None:
+    """Build an EbayLister from the user's stored eBay credentials.
+
+    Returns None if the user hasn't connected their eBay account,
+    which means publish requests will silently stay in draft mode.
+    """
+    try:
+        repo = EbayCredentialRepository(db)
+        creds = await repo.find_by_user(uuid.UUID(user_id))
+        if not creds:
+            return None
+
+        cred = creds[0]  # Most recent credential
+        settings = get_settings()
+
+        return EbayLister(
+            access_token=decrypt(cred.access_token),
+            base_url=settings.ebay_base_url,
+            fulfillment_policy_id=settings.ebay_fulfillment_policy_id,
+            payment_policy_id=settings.ebay_payment_policy_id,
+            return_policy_id=settings.ebay_return_policy_id,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to build EbayLister for user {user_id}: {e}")
+        return None
+
+
 @asynccontextmanager
-async def _conversion_service_context():
+async def _conversion_service_context(
+    user_id: str | None = None,
+    db: AsyncSession | None = None,
+):
     """Create a ConversionService with a properly started BrowserManager.
 
     Uses async context manager to ensure BrowserManager is started before
     scraping and cleaned up afterward.
+
+    If user_id and db are provided, attempts to build an EbayLister from
+    the user's stored credentials for real eBay publishing.
     """
     browser_manager = BrowserManager()
     try:
         await browser_manager.start()
+
+        # Build EbayLister from stored credentials (None if not connected)
+        ebay_lister = None
+        if user_id and db:
+            ebay_lister = await _get_ebay_lister(user_id, db)
+
         service = ConversionService(
             proxy_manager=ProxyManager(),
             browser_manager=browser_manager,
             compliance_service=ComplianceService(),
             profit_engine=ProfitEngine(),
             ebay_converter=EbayConverter(),
+            ebay_lister=ebay_lister,
         )
         yield service
     finally:
@@ -114,6 +158,7 @@ async def create_conversion(
     request: ConvertRequest,
     response: Response,
     user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     rate_info: RateLimitInfo = Depends(check_conversion_rate_limit),
 ):
     """
@@ -129,7 +174,7 @@ async def create_conversion(
     user_id = user["sub"]
 
     try:
-        async with _conversion_service_context() as service:
+        async with _conversion_service_context(user_id, db) as service:
             result = await service.convert_url(
                 url=request.url,
                 user_id=user_id,
@@ -164,6 +209,7 @@ async def create_bulk_conversion(
     request: BulkConvertRequest,
     response: Response,
     user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     rate_info: RateLimitInfo = Depends(check_bulk_conversion_rate_limit),
 ):
     """
@@ -181,7 +227,7 @@ async def create_bulk_conversion(
     user_id = user["sub"]
 
     try:
-        async with _conversion_service_context() as service:
+        async with _conversion_service_context(user_id, db) as service:
             progress = await service.convert_bulk(
                 urls=request.urls,
                 user_id=user_id,
@@ -199,6 +245,7 @@ async def preview_conversion(
     request: PreviewRequest,
     response: Response,
     user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     rate_info: RateLimitInfo = Depends(check_conversion_rate_limit),
 ):
     """
@@ -276,6 +323,7 @@ async def list_conversions(
 async def create_bulk_conversion_stream(
     request: BulkConvertRequest,
     user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     rate_info: RateLimitInfo = Depends(check_bulk_conversion_rate_limit),
 ):
     """
@@ -304,12 +352,17 @@ async def create_bulk_conversion_stream(
         try:
             browser_manager = BrowserManager()
             await browser_manager.start()
+
+            # Build EbayLister from stored credentials
+            ebay_lister = await _get_ebay_lister(user_id, db)
+
             service = ConversionService(
                 proxy_manager=ProxyManager(),
                 browser_manager=browser_manager,
                 compliance_service=ComplianceService(),
                 profit_engine=ProfitEngine(),
                 ebay_converter=EbayConverter(),
+                ebay_lister=ebay_lister,
             )
             job = manager.get_job(jid)
 
