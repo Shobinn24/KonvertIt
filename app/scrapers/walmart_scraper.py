@@ -1,19 +1,15 @@
 """
 Walmart product page scraper.
 
-Walmart uses Next.js with __NEXT_DATA__ JSON embedded in page source,
-making data extraction more reliable than HTML parsing. Falls back to
-HTML selectors when __NEXT_DATA__ is unavailable.
-
-When ScraperAPI is configured, fetches page HTML via httpx (no Playwright
-needed) and parses it with the existing extraction pipeline.
+When ScraperAPI is configured, uses their Structured Data endpoint
+(/structured/walmart/product) for reliable JSON responses — no HTML
+parsing or anti-bot handling needed. Falls back to Playwright +
+BeautifulSoup for other proxy providers or direct connections.
 """
 
-import json
 import logging
 import re
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from bs4 import BeautifulSoup
@@ -29,25 +25,29 @@ logger = logging.getLogger(__name__)
 WALMART_ID_PATTERN = re.compile(r"/ip/(?:[^/]+/)?(\d+)")
 WALMART_ID_FALLBACK = re.compile(r"/(\d{8,13})(?:\?|$)")
 
+# Price patterns (for Playwright fallback)
+PRICE_PATTERN = re.compile(r"\$?([\d,]+\.?\d*)")
+
+# ScraperAPI structured endpoint for Walmart products
+SCRAPERAPI_STRUCTURED_URL = "https://api.scraperapi.com/structured/walmart/product"
+
 
 class WalmartScraper(BaseScraper):
     """
     Scraper for Walmart product pages.
 
-    Primary strategy: Extract __NEXT_DATA__ JSON from page source.
-    Fallback strategy: CSS selector-based HTML parsing.
+    Primary strategy: ScraperAPI Structured Data endpoint (returns JSON).
+    Fallback strategy: Playwright + CSS selector-based HTML parsing.
 
     Handles:
-    - __NEXT_DATA__ JSON extraction (preferred — structured, reliable)
-    - HTML fallback for pages without __NEXT_DATA__
-    - Bot detection (CAPTCHA, access denied)
+    - ScraperAPI Structured endpoint (preferred — JSON, no bot issues)
+    - Playwright fallback for non-ScraperAPI proxy providers
     - Product ID extraction from URL
-    - Price extraction from multiple data paths
     """
 
     SOURCE_NAME = "walmart"
 
-    # ─── ScraperAPI httpx-based Scraping ─────────────────────────
+    # ─── ScraperAPI Structured Endpoint ──────────────────────────
 
     def _get_scraperapi_key(self) -> str | None:
         """Get ScraperAPI key from the proxy manager's config."""
@@ -61,58 +61,51 @@ class WalmartScraper(BaseScraper):
         return None
 
     @retry_with_backoff(
-        max_retries=1,
+        max_retries=2,
         base_delay=2.0,
         retryable_exceptions=(ScrapingError,),
     )
     async def _scrape_with_retry(self, url: str) -> ScrapedProduct:
-        """Execute scraping with ScraperAPI httpx or Playwright fallback.
+        """Execute scraping with ScraperAPI structured endpoint or Playwright fallback.
 
-        ScraperAPI's Walmart structured endpoint requires ultra_premium,
-        so we fetch the raw HTML via their regular API and parse it ourselves
-        using the existing __NEXT_DATA__ / HTML extraction pipeline.
-
-        Uses only 1 retry since Walmart scraping via ScraperAPI is slow (~60s)
-        and we must stay within Gunicorn's 120s worker timeout.
+        Uses ScraperAPI's /structured/walmart/product endpoint which returns
+        clean JSON and handles anti-bot (PerimeterX) internally. No custom
+        HTML parsing or ultra_premium needed.
         """
         api_key = self._get_scraperapi_key()
+        product_id = self._extract_product_id(url)
 
-        if api_key:
-            return await self._scrape_via_scraperapi(api_key, url)
+        if api_key and product_id:
+            return await self._scrape_structured(api_key, product_id, url)
 
         # Fallback to Playwright-based scraping (parent implementation)
         return await super()._scrape_with_retry(url)
 
-    async def _scrape_via_scraperapi(self, api_key: str, url: str) -> ScrapedProduct:
-        """Fetch Walmart page HTML via ScraperAPI httpx, then parse it.
+    async def _scrape_structured(self, api_key: str, product_id: str, url: str) -> ScrapedProduct:
+        """Scrape using ScraperAPI's structured Walmart Product endpoint.
 
-        Uses ultra_premium=true (advanced anti-bot bypass) to get past Walmart's
-        PerimeterX protection. Costs 30 credits/request (requires Hobby plan+).
-        Note: premium=true (10 credits) was insufficient — still CAPTCHA-blocked.
-
-        Note: ScraperAPI may pass through Walmart's HTTP status codes (404/500)
-        even when page HTML is returned. We accept any response with substantial
-        content and attempt parsing.
+        Returns structured JSON directly — no browser, HTML parsing, or
+        anti-bot params needed. ScraperAPI handles PerimeterX internally.
         """
         proxy = await self._proxy_manager.get_proxy()
-        clean_url = self._clean_url(url)
 
         try:
-            # No render=true needed — Walmart embeds all product data in
-            # __NEXT_DATA__ server-side JSON. ultra_premium=true uses
-            # ScraperAPI's advanced anti-bot bypass (residential + fingerprint
-            # rotation) to get past Walmart's PerimeterX protection.
-            # Costs 30 credits/request. premium=true (10 credits) was
-            # insufficient — still triggered CAPTCHA.
-            scraperapi_url = (
-                f"https://api.scraperapi.com"
-                f"?api_key={api_key}"
-                f"&url={quote(clean_url, safe='')}"
-                f"&ultra_premium=true"
-            )
-
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.get(scraperapi_url)
+                response = await client.get(
+                    SCRAPERAPI_STRUCTURED_URL,
+                    params={
+                        "api_key": api_key,
+                        "product_id": product_id,
+                        "country_code": "us",
+                        "tld": "com",
+                    },
+                )
+
+            if response.status_code == 404:
+                raise ProductNotFoundError(
+                    f"Walmart product not found: {product_id}. "
+                    "The product may have been removed or the URL may be incorrect."
+                )
 
             if response.status_code == 429:
                 raise ScrapingError(
@@ -120,68 +113,113 @@ class WalmartScraper(BaseScraper):
                     details={"status": 429, "url": url},
                 )
 
-            page_content = response.text
-
-            # ScraperAPI may return non-200 but still include page HTML.
-            # Only reject if response is small (likely an API error, not page content).
-            if response.status_code != 200 and len(page_content) < 10000:
-                # Small non-200 response — likely a ScraperAPI error
+            if response.status_code != 200:
                 raise ScrapingError(
-                    f"ScraperAPI returned {response.status_code} for Walmart. "
-                    "Walmart may require a premium ScraperAPI plan.",
-                    details={"status": response.status_code, "body": page_content[:500]},
+                    f"ScraperAPI structured endpoint returned {response.status_code} for Walmart",
+                    details={"status": response.status_code, "body": response.text[:500]},
                 )
 
-            # Detect Walmart "not found" pages (returned even with large HTML)
-            if "we couldn't find this page" in page_content.lower():
-                from app.core.exceptions import ProductNotFoundError
-                raise ProductNotFoundError(
-                    f"Walmart product not found at {url}. "
-                    "The product may have been removed or the URL may be incorrect."
-                )
-
-            # Check for bot detection
-            if self._detect_bot_block(page_content):
-                await self._proxy_manager.report_failure(proxy)
-                raise ScrapingError(
-                    "Bot detection triggered on walmart",
-                    details={"url": url, "content_length": len(page_content)},
-                )
-
-            # Use existing extraction pipeline
-            raw_data = self._extract(page_content)
+            data = response.json()
+            raw_data = self._extract_from_structured(data)
             product = self._transform(raw_data, url)
 
             if not self.validate(product):
                 raise ScrapingError(
-                    f"Incomplete product data from {url}",
+                    f"Incomplete product data from structured API for {url}",
                     details={"raw_data": raw_data},
                 )
 
             await self._proxy_manager.report_success(proxy)
-            logger.info(f"[walmart] ScraperAPI httpx success for {url}")
+            logger.info(f"[walmart] Structured API success for product {product_id}")
             return product
 
         except ScrapingError:
             await self._proxy_manager.report_failure(proxy)
             raise
+        except ProductNotFoundError:
+            raise
         except Exception as e:
             await self._proxy_manager.report_failure(proxy)
             raise ScrapingError(
-                f"ScraperAPI error for {url}: {e}",
+                f"Structured API error for {url}: {e}",
                 details={"url": url, "error_type": type(e).__name__},
             ) from e
 
-    def _clean_url(self, url: str) -> str:
-        """Normalize Walmart URL to minimal form."""
-        product_id = self._extract_product_id(url)
-        if product_id:
-            clean = f"https://www.walmart.com/ip/{product_id}"
-            logger.debug(f"Cleaned Walmart URL: {url[:80]}... → {clean}")
-            return clean
-        return url
+    def _extract_from_structured(self, data: dict) -> dict[str, Any]:
+        """Extract raw product fields from ScraperAPI structured JSON response.
 
-    # ─── CSS Selectors (fallback) ──────────────────────────────
+        ScraperAPI Walmart Product endpoint returns:
+        - product_name, product_description, brand, image
+        - offers: [{url, availability, available_delivery_method, item_condition}]
+        """
+        # Extract price from product_name or offers (ScraperAPI may include
+        # price in various places depending on the product)
+        price = 0.0
+        pricing_str = data.get("pricing", data.get("price", ""))
+        if pricing_str:
+            match = PRICE_PATTERN.search(str(pricing_str))
+            if match:
+                try:
+                    price = float(match.group(1).replace(",", ""))
+                except ValueError:
+                    pass
+
+        # If no top-level price, check offers
+        if price == 0.0:
+            offers = data.get("offers", [])
+            if isinstance(offers, list):
+                for offer in offers:
+                    offer_price = offer.get("price", "")
+                    if offer_price:
+                        match = PRICE_PATTERN.search(str(offer_price))
+                        if match:
+                            try:
+                                price = float(match.group(1).replace(",", ""))
+                                if price > 0:
+                                    break
+                            except ValueError:
+                                continue
+
+        # Extract images — can be string or list
+        raw_image = data.get("image", data.get("images", []))
+        if isinstance(raw_image, str):
+            images = [self._to_large_image(raw_image)] if raw_image else []
+        elif isinstance(raw_image, list):
+            images = [self._to_large_image(img) for img in raw_image if img][:12]
+        else:
+            images = []
+
+        # Extract availability from offers
+        availability = ""
+        offers = data.get("offers", [])
+        if isinstance(offers, list) and offers:
+            availability = offers[0].get("availability", "")
+            # Clean up schema.org-style values like "https://schema.org/InStock"
+            if "/" in availability:
+                availability = availability.rsplit("/", 1)[-1]
+
+        # Build description
+        description = data.get("product_description", data.get("description", ""))
+        if isinstance(description, list):
+            description = " | ".join(description)
+
+        # Clean HTML from description
+        if description and "<" in description:
+            desc_soup = BeautifulSoup(description, "lxml")
+            description = desc_soup.get_text(separator=" ", strip=True)
+
+        return {
+            "title": data.get("product_name", data.get("name", "")),
+            "price": price,
+            "brand": data.get("brand", ""),
+            "images": images,
+            "description": description,
+            "category": data.get("category", data.get("product_category", "")),
+            "availability": availability,
+            "structured_api": True,
+        }
+
+    # ─── CSS Selectors (Playwright fallback) ────────────────────
 
     SELECTORS = {
         "title": [
@@ -223,274 +261,10 @@ class WalmartScraper(BaseScraper):
         ],
     }
 
-    # ─── Extraction ────────────────────────────────────────────
+    # ─── Playwright Fallback Extraction ─────────────────────────
 
     def _extract(self, page_content: str) -> dict[str, Any]:
-        """
-        Extract raw product data, preferring __NEXT_DATA__ JSON over HTML.
-        """
-        # Try __NEXT_DATA__ first (most reliable)
-        next_data = self._extract_next_data(page_content)
-        if next_data:
-            product_data = self._parse_next_data(next_data)
-            if product_data and product_data.get("title"):
-                logger.debug("Extracted product data from __NEXT_DATA__")
-                return product_data
-
-        # Fallback to HTML parsing
-        logger.debug("__NEXT_DATA__ unavailable, falling back to HTML parsing")
-        return self._extract_from_html(page_content)
-
-    def _extract_next_data(self, page_content: str) -> dict | None:
-        """Extract the __NEXT_DATA__ JSON object from page source."""
-        soup = BeautifulSoup(page_content, "lxml")
-        script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-
-        if not script_tag or not script_tag.string:
-            return None
-
-        try:
-            return json.loads(script_tag.string)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse __NEXT_DATA__ JSON")
-            return None
-
-    def _parse_next_data(self, data: dict) -> dict[str, Any]:
-        """
-        Navigate the __NEXT_DATA__ JSON structure to extract product fields.
-
-        Walmart's __NEXT_DATA__ nests product info under:
-        props.pageProps.initialData.data.product (or similar paths)
-        """
-        product = self._find_product_in_next_data(data)
-        if not product:
-            return {}
-
-        # Extract price from various possible paths
-        price = self._extract_price_from_next_data(product)
-
-        # Extract images
-        images = self._extract_images_from_next_data(product)
-
-        # Extract description
-        description = ""
-        short_desc = product.get("shortDescription", "")
-        long_desc = product.get("detailedDescription", "")
-        if short_desc:
-            description = short_desc
-        elif long_desc:
-            description = long_desc
-
-        # Clean HTML from description
-        if "<" in description:
-            desc_soup = BeautifulSoup(description, "lxml")
-            description = desc_soup.get_text(separator=" ", strip=True)
-
-        # Extract category from breadcrumb/taxonomy
-        category = self._extract_category_from_next_data(product)
-
-        return {
-            "title": product.get("name", ""),
-            "price": price,
-            "brand": product.get("brand", ""),
-            "images": images,
-            "description": description,
-            "category": category,
-            "availability": self._extract_availability_from_next_data(product),
-            "source": "next_data",
-        }
-
-    def _find_product_in_next_data(self, data: dict) -> dict | None:
-        """Navigate nested __NEXT_DATA__ to find the product object."""
-        # Common paths in Walmart's Next.js data structure
-        paths = [
-            ["props", "pageProps", "initialData", "data", "product"],
-            ["props", "pageProps", "initialData", "data", "contentLayout",
-             "modules", 0, "configs", "product"],
-            ["props", "pageProps", "product"],
-            ["props", "pageProps", "initialData", "product"],
-        ]
-
-        for path in paths:
-            result = data
-            try:
-                for key in path:
-                    if isinstance(result, dict):
-                        result = result[key]
-                    elif isinstance(result, list) and isinstance(key, int):
-                        result = result[key]
-                    else:
-                        result = None
-                        break
-                if result and isinstance(result, dict) and result.get("name"):
-                    return result
-            except (KeyError, IndexError, TypeError):
-                continue
-
-        # Deep search: look for any dict with "name" and "priceInfo"
-        return self._deep_find_product(data)
-
-    def _deep_find_product(self, obj: Any, depth: int = 0) -> dict | None:
-        """Recursively search for a product-like object in nested data."""
-        if depth > 8:
-            return None
-
-        if isinstance(obj, dict):
-            # A product typically has "name" and some price field
-            if "name" in obj and ("priceInfo" in obj or "price" in obj or "offerPrice" in obj):
-                return obj
-            for value in obj.values():
-                result = self._deep_find_product(value, depth + 1)
-                if result:
-                    return result
-
-        elif isinstance(obj, list):
-            for item in obj[:10]:  # Limit list traversal
-                result = self._deep_find_product(item, depth + 1)
-                if result:
-                    return result
-
-        return None
-
-    def _extract_price_from_next_data(self, product: dict) -> float:
-        """Extract price from various __NEXT_DATA__ structures."""
-        # Path 1: priceInfo.currentPrice.price
-        price_info = product.get("priceInfo", {})
-        if isinstance(price_info, dict):
-            current = price_info.get("currentPrice", {})
-            if isinstance(current, dict):
-                price = current.get("price", 0)
-                if price and float(price) > 0:
-                    return float(price)
-            # priceInfo.priceRange
-            price_range = price_info.get("priceRange", {})
-            if isinstance(price_range, dict):
-                min_price = price_range.get("minPrice", 0)
-                if min_price and float(min_price) > 0:
-                    return float(min_price)
-
-        # Path 2: direct price field
-        price = product.get("price", product.get("offerPrice", 0))
-        if price:
-            try:
-                return float(price)
-            except (ValueError, TypeError):
-                pass
-
-        # Path 3: buyBoxPrice or selectedVariantPrice
-        for key in ("buyBoxPrice", "selectedVariantPrice", "wasPrice"):
-            val = product.get(key, {})
-            if isinstance(val, dict):
-                p = val.get("price", val.get("amount", 0))
-                if p and float(p) > 0:
-                    return float(p)
-            elif val:
-                try:
-                    return float(val)
-                except (ValueError, TypeError):
-                    pass
-
-        return 0.0
-
-    def _extract_images_from_next_data(self, product: dict) -> list[str]:
-        """Extract image URLs from __NEXT_DATA__ product object."""
-        images = []
-        seen = set()
-
-        # Path 1: imageInfo.allImages
-        image_info = product.get("imageInfo", {})
-        if isinstance(image_info, dict):
-            all_images = image_info.get("allImages", [])
-            for img in all_images:
-                if isinstance(img, dict):
-                    url = img.get("url", "")
-                elif isinstance(img, str):
-                    url = img
-                else:
-                    continue
-                if url and url not in seen:
-                    images.append(self._to_large_image(url))
-                    seen.add(url)
-
-        # Path 2: images array
-        if not images:
-            for img in product.get("images", product.get("imageUrls", [])):
-                url = img if isinstance(img, str) else img.get("url", "")
-                if url and url not in seen:
-                    images.append(self._to_large_image(url))
-                    seen.add(url)
-
-        # Path 3: primaryImage
-        if not images:
-            primary = product.get("primaryImage", product.get("thumbnailUrl", ""))
-            if primary:
-                images.append(self._to_large_image(primary))
-
-        return images[:12]
-
-    def _to_large_image(self, url: str) -> str:
-        """Convert Walmart image URL to large version."""
-        if not url or not url.startswith("http"):
-            return url
-        # Walmart images: replace size params with large version
-        url = re.sub(r"\?.*$", "", url)  # Remove query params
-        if "walmartimages.com" in url:
-            # Ensure we get the large version
-            url = re.sub(r"_\d+x\d+", "", url)
-        return url
-
-    def _extract_category_from_next_data(self, product: dict) -> str:
-        """Extract category path from __NEXT_DATA__."""
-        # Path 1: category.path
-        categories = product.get("category", {})
-        if isinstance(categories, dict):
-            path = categories.get("path", [])
-            if isinstance(path, list):
-                names = [c.get("name", "") for c in path if isinstance(c, dict)]
-                if names:
-                    return " > ".join(n for n in names if n)
-
-        # Path 2: breadcrumb
-        breadcrumb = product.get("breadcrumb", product.get("taxonomyPath", []))
-        if isinstance(breadcrumb, list):
-            names = []
-            for item in breadcrumb:
-                if isinstance(item, dict):
-                    names.append(item.get("name", item.get("text", "")))
-                elif isinstance(item, str):
-                    names.append(item)
-            if names:
-                return " > ".join(n for n in names if n)
-
-        # Path 3: categoryPath string
-        cat_path = product.get("categoryPath", "")
-        if cat_path:
-            return cat_path
-
-        return ""
-
-    def _extract_availability_from_next_data(self, product: dict) -> str:
-        """Extract availability status from __NEXT_DATA__."""
-        avail = product.get("availabilityStatus", "")
-        if avail:
-            return avail
-
-        offer = product.get("offerType", "")
-        if offer:
-            return f"Available ({offer})"
-
-        in_stock = product.get("inStock", product.get("isInStock", None))
-        if in_stock is True:
-            return "In Stock"
-        elif in_stock is False:
-            return "Out of Stock"
-
-        return ""
-
-    # ─── HTML Fallback ─────────────────────────────────────────
-
-    def _extract_from_html(self, page_content: str) -> dict[str, Any]:
-        """Fallback: extract product data from HTML using CSS selectors."""
+        """Extract raw product data from Walmart page HTML (Playwright fallback)."""
         soup = BeautifulSoup(page_content, "lxml")
 
         return {
@@ -516,12 +290,9 @@ class WalmartScraper(BaseScraper):
 
     def _extract_price_html(self, soup: BeautifulSoup) -> float:
         """Extract price from HTML selectors."""
-        price_pattern = re.compile(r"\$?([\d,]+\.?\d*)")
-
         for selector in self.SELECTORS["price"]:
             elements = soup.select(selector)
             for element in elements:
-                # Check content attribute first (for meta/itemprop)
                 content = element.get("content", "")
                 if content:
                     try:
@@ -532,7 +303,7 @@ class WalmartScraper(BaseScraper):
                         pass
 
                 text = element.get_text(strip=True)
-                match = price_pattern.search(text)
+                match = PRICE_PATTERN.search(text)
                 if match:
                     price_str = match.group(1).replace(",", "")
                     try:
@@ -609,16 +380,34 @@ class WalmartScraper(BaseScraper):
 
         return ""
 
-    # ─── Bot Detection ─────────────────────────────────────────
+    def _clean_url(self, url: str) -> str:
+        """Normalize Walmart URL to minimal form."""
+        product_id = self._extract_product_id(url)
+        if product_id:
+            clean = f"https://www.walmart.com/ip/{product_id}"
+            logger.debug(f"Cleaned Walmart URL: {url[:80]}... → {clean}")
+            return clean
+        return url
+
+    def _to_large_image(self, url: str) -> str:
+        """Convert Walmart image URL to large version."""
+        if not url or not url.startswith("http"):
+            return url
+        # Remove query params
+        url = re.sub(r"\?.*$", "", url)
+        if "walmartimages.com" in url:
+            # Remove size constraints to get the large version
+            url = re.sub(r"_\d+x\d+", "", url)
+        return url
+
+    # ─── Bot Detection (Playwright fallback) ───────────────────
 
     def _detect_bot_block(self, page_content: str) -> bool:
         """
         Detect Walmart-specific bot blocking patterns.
 
-        Walmart uses:
-        1. CAPTCHA challenges (PerimeterX)
-        2. Access denied pages
-        3. Rate limiting redirects
+        Only used for Playwright fallback path — structured endpoint
+        handles anti-bot internally.
         """
         content_lower = page_content.lower()
 
