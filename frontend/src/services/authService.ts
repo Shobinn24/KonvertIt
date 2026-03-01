@@ -44,3 +44,11 @@ export async function handleEbayCallback(
   const res = await api.get(`/auth/ebay/callback?${params.toString()}`);
   return res.data;
 }
+
+export async function getEbayStatus(): Promise<{
+  connected: boolean;
+  store_name: string;
+}> {
+  const res = await api.get("/auth/ebay/status");
+  return res.data;
+}

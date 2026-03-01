@@ -7,7 +7,7 @@ for creating listings on behalf of connected sellers.
 
 import base64
 import logging
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -67,7 +67,8 @@ class EbayAuth:
             "scope": " ".join(EBAY_SCOPES),
             "state": state,
         }
-        return f"{self._auth_url}/oauth2/authorize?{urlencode(params)}"
+        # eBay requires %20 space encoding, not + (quote_plus default)
+        return f"{self._auth_url}/oauth2/authorize?{urlencode(params, quote_via=quote)}"
 
     def _get_basic_auth_header(self) -> str:
         """Generate Base64-encoded credentials for token requests."""

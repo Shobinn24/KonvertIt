@@ -13,6 +13,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -201,9 +202,13 @@ async def ebay_connect(
     The frontend should redirect the user to this URL. After authorization,
     eBay will redirect back to the callback endpoint with an auth code.
 
-    A random state parameter is generated for CSRF protection.
+    The state parameter encodes the user ID and a CSRF nonce so the
+    callback can identify the user without requiring a JWT (eBay redirects
+    the browser directly — no Authorization header is present).
     """
-    state = str(uuid.uuid4())
+    csrf_nonce = str(uuid.uuid4())
+    # Encode user_id in state so callback can identify user without JWT
+    state = f"{user['sub']}:{csrf_nonce}"
 
     ebay_auth = EbayAuth()
     authorization_url = ebay_auth.get_authorization_url(state=state)
@@ -216,41 +221,46 @@ async def ebay_connect(
 
 @router.get(
     "/ebay/callback",
-    response_model=EbayCallbackResponse,
     summary="eBay OAuth callback",
 )
 async def ebay_callback(
     code: str,
     state: str = "",
-    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Handle the eBay OAuth callback after user authorization.
 
-    Exchanges the authorization code for access/refresh tokens
-    and saves the eBay credentials for the authenticated user.
+    eBay redirects the browser here directly — no Authorization header
+    is present.  The user_id is extracted from the state parameter which
+    was set during the /ebay/connect step (format: ``user_id:csrf_nonce``).
 
-    Query params:
-        code: Authorization code from eBay redirect.
-        state: CSRF state parameter (should match the one from /ebay/connect).
+    After saving the tokens, the user is redirected to the frontend
+    settings page with a success/error query parameter.
     """
+    settings = get_settings()
+
+    # Determine frontend URL for redirect
+    frontend_url = settings.cors_allowed_origins.split(",")[0].strip() if settings.cors_allowed_origins else "http://localhost:5173"
+
+    # Extract user_id from state (format: "user_id:csrf_nonce")
+    try:
+        user_id_str, _ = state.split(":", 1)
+        user_id = uuid.UUID(user_id_str)
+    except (ValueError, AttributeError):
+        logger.error(f"Invalid state parameter in eBay callback: {state}")
+        return RedirectResponse(f"{frontend_url}/settings?ebay=error&reason=invalid_state")
+
     ebay_auth = EbayAuth()
 
     try:
         tokens = await ebay_auth.exchange_code(code)
     except Exception as e:
-        logger.error(f"eBay token exchange failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect eBay account: {e}",
-        )
+        logger.error(f"eBay token exchange failed for user {user_id}: {e}")
+        return RedirectResponse(f"{frontend_url}/settings?ebay=error&reason=token_exchange_failed")
 
     # Save credentials
     credential_repo = EbayCredentialRepository(db)
-    settings = get_settings()
-
-    user_id = uuid.UUID(user["sub"])
 
     await credential_repo.create(
         user_id=user_id,
@@ -261,8 +271,29 @@ async def ebay_callback(
         store_name="",
     )
 
-    logger.info(f"eBay credentials saved for user {user['sub']}")
+    logger.info(f"eBay credentials saved for user {user_id}")
 
-    return EbayCallbackResponse(
-        message="eBay account connected successfully",
-    )
+    return RedirectResponse(f"{frontend_url}/settings?ebay=connected")
+
+
+class EbayStatusResponse(BaseModel):
+    """eBay connection status."""
+    connected: bool
+    store_name: str = ""
+
+
+@router.get(
+    "/ebay/status",
+    response_model=EbayStatusResponse,
+    summary="Check eBay connection status",
+)
+async def ebay_status(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check whether the current user has a connected eBay account."""
+    repo = EbayCredentialRepository(db)
+    creds = await repo.find_by_user(uuid.UUID(user["sub"]))
+    if creds:
+        return EbayStatusResponse(connected=True, store_name=creds[0].store_name or "")
+    return EbayStatusResponse(connected=False)
