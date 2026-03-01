@@ -242,6 +242,8 @@ async def ebay_callback(
 
     # Determine frontend URL for redirect
     frontend_url = settings.cors_allowed_origins.split(",")[0].strip() if settings.cors_allowed_origins else "http://localhost:5173"
+    if frontend_url and not frontend_url.startswith("http"):
+        frontend_url = f"https://{frontend_url}"
 
     # Extract user_id from state (format: "user_id:csrf_nonce")
     try:
