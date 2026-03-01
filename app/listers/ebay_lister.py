@@ -60,6 +60,7 @@ class EbayLister(IListable):
         return {
             "Authorization": f"Bearer {self._access_token}",
             "Content-Type": "application/json",
+            "Content-Language": "en-US",
             "Accept": "application/json",
             "X-EBAY-C-MARKETPLACE-ID": self._marketplace_id,
         }
