@@ -137,6 +137,7 @@ class EbayLister(IListable):
                 },
             },
             "condition": self._map_condition(draft.condition),
+            "locale": "en_US",
             "product": {
                 "title": draft.title,
                 "description": plain_desc or draft.title,
@@ -162,16 +163,15 @@ class EbayLister(IListable):
                     "currency": draft.currency,
                 },
             },
+            "countryCode": "US",
             "quantityLimitPerBuyer": 5,
             "listingPolicies": {
                 "fulfillmentPolicyId": self._fulfillment_policy_id,
                 "paymentPolicyId": self._payment_policy_id,
                 "returnPolicyId": self._return_policy_id,
             },
+            "categoryId": draft.category_id or "175673",
         }
-
-        if draft.category_id:
-            offer["categoryId"] = draft.category_id
 
         return offer
 
