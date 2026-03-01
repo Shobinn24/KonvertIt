@@ -213,6 +213,8 @@ async def ebay_connect(
     ebay_auth = EbayAuth()
     authorization_url = ebay_auth.get_authorization_url(state=state)
 
+    logger.info(f"eBay connect URL generated for user {user['sub']}: {authorization_url[:120]}...")
+
     return EbayConnectResponse(
         authorization_url=authorization_url,
         state=state,

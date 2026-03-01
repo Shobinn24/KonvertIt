@@ -67,8 +67,12 @@ class EbayAuth:
             "scope": " ".join(EBAY_SCOPES),
             "state": state,
         }
-        # eBay requires %20 space encoding, not + (quote_plus default)
-        return f"{self._auth_url}/oauth2/authorize?{urlencode(params, quote_via=quote)}"
+        # eBay requires %20 space encoding (not +) and unencoded :// in scope URLs.
+        # safe=':/' keeps colons and slashes literal — eBay rejects %3A%2F%2F encoding.
+        url = f"{self._auth_url}/oauth2/authorize?{urlencode(params, quote_via=quote, safe=':/')}"
+        logger.info("Generated eBay auth URL (scopes: %d, state: %s)", len(EBAY_SCOPES), bool(state))
+        logger.debug("eBay auth URL: %s", url)
+        return url
 
     def _get_basic_auth_header(self) -> str:
         """Generate Base64-encoded credentials for token requests."""
