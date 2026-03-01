@@ -10,6 +10,7 @@ Supports listing creation, updates, price changes, and ending listings.
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -115,8 +116,20 @@ class EbayLister(IListable):
             return None
         return response.json()
 
+    @staticmethod
+    def _strip_html(html: str, max_length: int = 4000) -> str:
+        """Strip HTML tags and truncate to fit eBay's inventory description limit."""
+        text = re.sub(r"<[^>]+>", " ", html)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > max_length:
+            text = text[: max_length - 3] + "..."
+        return text
+
     def _build_inventory_item(self, draft: ListingDraft) -> dict:
         """Build the eBay inventory item payload from a listing draft."""
+        # Inventory item product.description has a 4000 char limit (plain text).
+        # The full HTML goes in the offer's listingDescription instead.
+        plain_desc = self._strip_html(draft.description_html)
         item = {
             "availability": {
                 "shipToLocationAvailability": {
@@ -126,7 +139,7 @@ class EbayLister(IListable):
             "condition": self._map_condition(draft.condition),
             "product": {
                 "title": draft.title,
-                "description": draft.description_html,
+                "description": plain_desc or draft.title,
                 "imageUrls": draft.images[:12],
             },
         }
