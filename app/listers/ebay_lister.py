@@ -151,7 +151,7 @@ class EbayLister(IListable):
 
         return item
 
-    def _build_offer(self, draft: ListingDraft, sku: str, location_key: str = DEFAULT_LOCATION_KEY) -> dict:
+    def _build_offer(self, draft: ListingDraft, sku: str, location_key: str | None = None) -> dict:
         """Build the eBay offer payload."""
         offer = {
             "sku": sku,
@@ -165,7 +165,6 @@ class EbayLister(IListable):
                 },
             },
             "countryCode": "US",
-            "merchantLocationKey": location_key,
             "quantityLimitPerBuyer": 5,
             "listingPolicies": {
                 "fulfillmentPolicyId": self._fulfillment_policy_id,
@@ -174,6 +173,10 @@ class EbayLister(IListable):
             },
             "categoryId": draft.category_id or "175673",
         }
+
+        # Only include merchantLocationKey if we have a valid one
+        if location_key:
+            offer["merchantLocationKey"] = location_key
 
         return offer
 
@@ -190,7 +193,43 @@ class EbayLister(IListable):
         }
         return condition_map.get(condition.lower(), "NEW")
 
-    async def _ensure_inventory_location(self) -> str:
+    async def _ensure_business_policies(self) -> None:
+        """Auto-fetch business policy IDs from eBay Account API if not configured.
+
+        eBay offers require fulfillment, payment, and return policy IDs. If
+        these aren't set via env vars, we fetch the seller's existing policies.
+        """
+        policy_types = [
+            ("fulfillment", "_fulfillment_policy_id", "/sell/account/v1/fulfillment_policy"),
+            ("payment", "_payment_policy_id", "/sell/account/v1/payment_policy"),
+            ("return", "_return_policy_id", "/sell/account/v1/return_policy"),
+        ]
+
+        for name, attr, path in policy_types:
+            current_value = getattr(self, attr, "")
+            if current_value:
+                continue  # Already configured
+
+            try:
+                response = await self._request(
+                    "GET",
+                    f"{path}?marketplace_id={self._marketplace_id}",
+                    expected_status=(200,),
+                )
+                policies = response.get(f"{name}Policies", []) if response else []
+                if policies:
+                    policy_id = policies[0].get(f"{name}PolicyId", "")
+                    if policy_id:
+                        setattr(self, attr, policy_id)
+                        logger.info(f"Auto-fetched {name} policy: {policy_id}")
+                    else:
+                        logger.warning(f"No {name} policy ID found in response")
+                else:
+                    logger.warning(f"No {name} policies found for {self._marketplace_id}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch {name} policies: {e}")
+
+    async def _ensure_inventory_location(self) -> str | None:
         """Ensure a default inventory location exists on eBay.
 
         eBay requires a merchantLocationKey in every offer to set the item's
@@ -199,7 +238,7 @@ class EbayLister(IListable):
         2. If none exist, creates a default US location
 
         Returns:
-            The merchant location key to use in offers.
+            The merchant location key, or None if we couldn't find/create one.
         """
         # Step 1: Check for existing inventory locations
         try:
@@ -210,9 +249,10 @@ class EbayLister(IListable):
             )
             locations = response.get("locations", []) if response else []
             if locations:
-                existing_key = locations[0].get("merchantLocationKey", DEFAULT_LOCATION_KEY)
-                logger.info(f"Using existing inventory location: {existing_key}")
-                return existing_key
+                existing_key = locations[0].get("merchantLocationKey", "")
+                if existing_key:
+                    logger.info(f"Using existing inventory location: {existing_key}")
+                    return existing_key
             logger.info("No existing inventory locations found, creating one")
         except Exception as e:
             logger.warning(f"Failed to list inventory locations: {e}")
@@ -240,17 +280,20 @@ class EbayLister(IListable):
                 expected_status=(200, 201, 204),
             )
             logger.info(f"Inventory location created: {location_key}")
+            return location_key
         except ListingError as e:
             error_str = str(e)
             if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
                 logger.debug(f"Inventory location already exists: {location_key}")
+                return location_key
             else:
                 logger.warning(f"Failed to create inventory location: {e}")
-                # Don't raise — let it try to proceed with the offer anyway
         except Exception as e:
             logger.warning(f"Unexpected error creating inventory location: {e}")
 
-        return location_key
+        # Both steps failed — return None so the offer omits merchantLocationKey
+        logger.warning("Could not find or create inventory location — offer will omit merchantLocationKey")
+        return None
 
     async def create_listing(self, draft: ListingDraft) -> ListingResult:
         """
@@ -281,7 +324,10 @@ class EbayLister(IListable):
             )
             logger.info(f"Inventory item created/updated: {sku}")
 
-            # Step 1.5: Ensure inventory location exists (required for offers)
+            # Step 1.5: Auto-fetch business policies if not configured
+            await self._ensure_business_policies()
+
+            # Step 1.6: Ensure inventory location exists (required for offers)
             location_key = await self._ensure_inventory_location()
 
             # Step 2: Create or update offer
