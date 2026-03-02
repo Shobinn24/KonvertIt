@@ -105,7 +105,7 @@ class EbayLister(IListable):
                 pass
 
             raise ListingError(
-                f"eBay API error ({response.status_code}): {error_detail}",
+                f"eBay API error ({response.status_code}) [{method} {path}]: {error_detail}",
                 details={
                     "status": response.status_code,
                     "path": path,
@@ -193,13 +193,31 @@ class EbayLister(IListable):
     async def _ensure_inventory_location(self) -> str:
         """Ensure a default inventory location exists on eBay.
 
-        eBay requires a merchantLocationKey in every offer. This creates a
-        minimal US-based location on first use. Subsequent calls are no-ops
-        (catches the 'already exists' error).
+        eBay requires a merchantLocationKey in every offer to set the item's
+        country. This method:
+        1. Tries to list existing inventory locations (uses first one found)
+        2. If none exist, creates a default US location
 
         Returns:
             The merchant location key to use in offers.
         """
+        # Step 1: Check for existing inventory locations
+        try:
+            response = await self._request(
+                "GET",
+                f"{INVENTORY_API}/inventory_location",
+                expected_status=(200,),
+            )
+            locations = response.get("locations", []) if response else []
+            if locations:
+                existing_key = locations[0].get("merchantLocationKey", DEFAULT_LOCATION_KEY)
+                logger.info(f"Using existing inventory location: {existing_key}")
+                return existing_key
+            logger.info("No existing inventory locations found, creating one")
+        except Exception as e:
+            logger.warning(f"Failed to list inventory locations: {e}")
+
+        # Step 2: Create a default location
         location_key = DEFAULT_LOCATION_KEY
         try:
             await self._request(
@@ -208,6 +226,10 @@ class EbayLister(IListable):
                 json_data={
                     "location": {
                         "address": {
+                            "addressLine1": "123 Main St",
+                            "city": "San Jose",
+                            "stateOrProvince": "CA",
+                            "postalCode": "95125",
                             "country": "US",
                         },
                     },
@@ -219,11 +241,15 @@ class EbayLister(IListable):
             )
             logger.info(f"Inventory location created: {location_key}")
         except ListingError as e:
-            # 409 or "already exists" — location was created previously, that's fine
-            if "409" in str(e) or "already exists" in str(e).lower() or "Location already enabled" in str(e):
+            error_str = str(e)
+            if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
                 logger.debug(f"Inventory location already exists: {location_key}")
             else:
-                raise
+                logger.warning(f"Failed to create inventory location: {e}")
+                # Don't raise — let it try to proceed with the offer anyway
+        except Exception as e:
+            logger.warning(f"Unexpected error creating inventory location: {e}")
+
         return location_key
 
     async def create_listing(self, draft: ListingDraft) -> ListingResult:
