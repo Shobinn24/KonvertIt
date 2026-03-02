@@ -618,7 +618,7 @@ async def debug_ebay(
         "return_policy_id": lister._return_policy_id,
     }
 
-    # Check full fulfillment policy details (especially shipFrom)
+    # Get full fulfillment policy (raw response)
     try:
         policy_id = results.get("lister_config", {}).get("fulfillment_policy_id", "")
         if policy_id:
@@ -627,49 +627,16 @@ async def debug_ebay(
                 f"/sell/account/v1/fulfillment_policy/{policy_id}",
                 expected_status=(200,),
             )
-            results["fulfillment_policy_detail"] = {
-                "name": resp.get("name", ""),
-                "shipToLocations": resp.get("shipToLocations", {}),
-                "shippingOptions": [
-                    {
-                        "optionType": s.get("optionType"),
-                        "costType": s.get("costType"),
-                    }
-                    for s in resp.get("shippingOptions", [])
-                ],
-                "has_shipFrom": "shipFrom" in (resp or {}),
-                "shipFrom": resp.get("shipFrom", "NOT SET"),
-            }
+            results["fulfillment_policy_raw"] = resp
     except Exception as e:
-        results["fulfillment_policy_detail"] = f"ERROR: {e}"
+        results["fulfillment_policy_raw"] = f"ERROR: {e}"
 
-    # Try updating the fulfillment policy to add shipFrom
+    # Try to run _ensure_fulfillment_shipfrom and report result
     try:
-        policy_id = results.get("lister_config", {}).get("fulfillment_policy_id", "")
-        if policy_id:
-            # Get current policy first
-            current = await lister._request(
-                "GET",
-                f"/sell/account/v1/fulfillment_policy/{policy_id}",
-                expected_status=(200,),
-            )
-            # Check if shipFrom already set
-            if current and "shipFrom" not in current:
-                # Add shipFrom to existing policy
-                current["shipFrom"] = {
-                    "country": "US",
-                    "postalCode": "95125",
-                }
-                update_resp = await lister._request(
-                    "PUT",
-                    f"/sell/account/v1/fulfillment_policy/{policy_id}",
-                    json_data=current,
-                    expected_status=(200, 204),
-                )
-                results["update_fulfillment_shipFrom"] = "SUCCESS — added shipFrom to policy"
-            else:
-                results["update_fulfillment_shipFrom"] = f"shipFrom already set: {current.get('shipFrom', 'N/A')}"
+        await lister._ensure_business_policies()
+        await lister._ensure_fulfillment_shipfrom()
+        results["ensure_shipfrom_result"] = "completed (check policy again)"
     except Exception as e:
-        results["update_fulfillment_shipFrom"] = f"ERROR: {e}"
+        results["ensure_shipfrom_result"] = f"ERROR: {e}"
 
     return results
