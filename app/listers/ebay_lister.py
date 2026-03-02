@@ -217,16 +217,43 @@ class EbayLister(IListable):
             )
             logger.info(f"Inventory item created/updated: {sku}")
 
-            # Step 2: Create offer
+            # Step 2: Create or update offer
+            # Check if an offer already exists for this SKU (from a previous failed attempt)
             offer_payload = self._build_offer(draft, sku)
-            offer_response = await self._request(
-                "POST",
-                f"{INVENTORY_API}/offer",
-                json_data=offer_payload,
-                expected_status=(200, 201),
-            )
-            offer_id = offer_response.get("offerId", "") if offer_response else ""
-            logger.info(f"Offer created: {offer_id}")
+            offer_id = ""
+            try:
+                existing_offers = await self._request(
+                    "GET",
+                    f"{INVENTORY_API}/offer?sku={sku}",
+                    expected_status=(200,),
+                )
+                offers = existing_offers.get("offers", []) if existing_offers else []
+                if offers:
+                    offer_id = offers[0].get("offerId", "")
+                    logger.info(f"Found existing offer {offer_id} for SKU {sku}, updating")
+            except (ListingError, Exception):
+                # No existing offers or lookup failed — will create new
+                offers = []
+
+            if offer_id:
+                # Update existing offer
+                await self._request(
+                    "PUT",
+                    f"{INVENTORY_API}/offer/{offer_id}",
+                    json_data=offer_payload,
+                    expected_status=(200, 204),
+                )
+                logger.info(f"Offer updated: {offer_id}")
+            else:
+                # Create new offer
+                offer_response = await self._request(
+                    "POST",
+                    f"{INVENTORY_API}/offer",
+                    json_data=offer_payload,
+                    expected_status=(200, 201),
+                )
+                offer_id = offer_response.get("offerId", "") if offer_response else ""
+                logger.info(f"Offer created: {offer_id}")
 
             # Step 3: Publish offer
             publish_response = await self._request(
