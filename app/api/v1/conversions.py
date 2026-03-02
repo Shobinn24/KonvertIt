@@ -560,3 +560,84 @@ async def cancel_job(
         "status": "cancelling",
         "message": "Job will stop after current item completes",
     }
+
+
+@router.get("/debug/ebay", summary="Debug eBay API connectivity")
+async def debug_ebay(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Temporary diagnostic endpoint to check eBay API state."""
+    import httpx
+
+    user_id = user["sub"]
+    lister = await _get_ebay_lister(user_id, db)
+    if not lister:
+        return {"error": "No eBay lister (not connected or token refresh failed)"}
+
+    results = {}
+
+    # Check business policies
+    for name, path in [
+        ("fulfillment", "/sell/account/v1/fulfillment_policy"),
+        ("payment", "/sell/account/v1/payment_policy"),
+        ("return", "/sell/account/v1/return_policy"),
+    ]:
+        try:
+            resp = await lister._request("GET", f"{path}?marketplace_id=EBAY_US", expected_status=(200,))
+            policies = resp.get(f"{name}Policies", []) if resp else []
+            results[f"{name}_policies"] = [
+                {
+                    "id": p.get(f"{name}PolicyId", ""),
+                    "name": p.get("name", ""),
+                }
+                for p in policies
+            ]
+        except Exception as e:
+            results[f"{name}_policies"] = f"ERROR: {e}"
+
+    # Check inventory locations
+    try:
+        resp = await lister._request("GET", "/sell/inventory/v1/inventory_location", expected_status=(200,))
+        locations = resp.get("locations", []) if resp else []
+        results["inventory_locations"] = [
+            {
+                "key": loc.get("merchantLocationKey", ""),
+                "name": loc.get("name", ""),
+                "status": loc.get("merchantLocationStatus", ""),
+            }
+            for loc in locations
+        ]
+    except Exception as e:
+        results["inventory_locations"] = f"ERROR: {e}"
+
+    # Check what lister has configured
+    results["lister_config"] = {
+        "fulfillment_policy_id": lister._fulfillment_policy_id,
+        "payment_policy_id": lister._payment_policy_id,
+        "return_policy_id": lister._return_policy_id,
+    }
+
+    # Try creating location
+    try:
+        await lister._request(
+            "POST",
+            "/sell/inventory/v1/inventory_location/KI-DIAG-TEST",
+            json_data={
+                "location": {"address": {"addressLine1": "123 Main St", "city": "San Jose", "stateOrProvince": "CA", "postalCode": "95125", "country": "US"}},
+                "merchantLocationStatus": "ENABLED",
+                "name": "Diagnostic Test",
+                "locationTypes": ["WAREHOUSE"],
+            },
+            expected_status=(200, 201, 204),
+        )
+        results["create_location_test"] = "SUCCESS"
+        # Clean up
+        try:
+            await lister._request("DELETE", "/sell/inventory/v1/inventory_location/KI-DIAG-TEST", expected_status=(200, 204))
+        except Exception:
+            pass
+    except Exception as e:
+        results["create_location_test"] = f"ERROR: {e}"
+
+    return results
