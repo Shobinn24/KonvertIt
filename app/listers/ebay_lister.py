@@ -194,10 +194,15 @@ class EbayLister(IListable):
         return condition_map.get(condition.lower(), "NEW")
 
     async def _ensure_business_policies(self) -> None:
-        """Auto-fetch business policy IDs from eBay Account API if not configured.
+        """Auto-fetch or create business policy IDs from eBay Account API.
 
-        eBay offers require fulfillment, payment, and return policy IDs. If
-        these aren't set via env vars, we fetch the seller's existing policies.
+        eBay offers require fulfillment, payment, and return policy IDs. This:
+        1. Fetches existing policies (uses first one found for each type)
+        2. If none exist, creates sensible defaults
+
+        The fulfillment policy includes a shipFrom location with country=US,
+        which is how eBay determines Item.Country when no inventory location
+        is configured.
         """
         policy_types = [
             ("fulfillment", "_fulfillment_policy_id", "/sell/account/v1/fulfillment_policy"),
@@ -210,6 +215,7 @@ class EbayLister(IListable):
             if current_value:
                 continue  # Already configured
 
+            # Step 1: Try to fetch existing policies
             try:
                 response = await self._request(
                     "GET",
@@ -222,12 +228,79 @@ class EbayLister(IListable):
                     if policy_id:
                         setattr(self, attr, policy_id)
                         logger.info(f"Auto-fetched {name} policy: {policy_id}")
-                    else:
-                        logger.warning(f"No {name} policy ID found in response")
-                else:
-                    logger.warning(f"No {name} policies found for {self._marketplace_id}")
+                        continue
             except Exception as e:
                 logger.warning(f"Failed to fetch {name} policies: {e}")
+
+            # Step 2: No existing policy found — create a default one
+            logger.info(f"No {name} policy found, creating default...")
+            try:
+                create_payload = self._default_policy_payload(name)
+                create_response = await self._request(
+                    "POST",
+                    path,
+                    json_data=create_payload,
+                    expected_status=(200, 201),
+                )
+                if create_response:
+                    policy_id = create_response.get(f"{name}PolicyId", "")
+                    if policy_id:
+                        setattr(self, attr, policy_id)
+                        logger.info(f"Created default {name} policy: {policy_id}")
+                    else:
+                        logger.warning(f"Created {name} policy but no ID returned")
+            except Exception as e:
+                logger.warning(f"Failed to create default {name} policy: {e}")
+
+    def _default_policy_payload(self, policy_type: str) -> dict:
+        """Build a default business policy payload for auto-creation."""
+        if policy_type == "fulfillment":
+            return {
+                "name": "KonvertIt Shipping",
+                "marketplaceId": self._marketplace_id,
+                "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                "handlingTime": {"value": 3, "unit": "BUSINESS_DAY"},
+                "shipToLocations": {
+                    "regionIncluded": [{"regionName": "WORLDWIDE"}],
+                },
+                "shippingOptions": [
+                    {
+                        "optionType": "DOMESTIC",
+                        "costType": "FLAT_RATE",
+                        "shippingServices": [
+                            {
+                                "sortOrder": 1,
+                                "shippingCarrierCode": "USPS",
+                                "shippingServiceCode": "USPSPriority",
+                                "shippingCost": {"value": "5.99", "currency": "USD"},
+                                "additionalShippingCost": {"value": "3.99", "currency": "USD"},
+                                "freeShipping": False,
+                                "buyerResponsibleForShipping": False,
+                                "buyerResponsibleForPickup": False,
+                            }
+                        ],
+                    }
+                ],
+                "globalShipping": False,
+            }
+        elif policy_type == "payment":
+            return {
+                "name": "KonvertIt Payment",
+                "marketplaceId": self._marketplace_id,
+                "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                "immediatePay": True,
+            }
+        elif policy_type == "return":
+            return {
+                "name": "KonvertIt Returns",
+                "marketplaceId": self._marketplace_id,
+                "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                "returnsAccepted": True,
+                "returnPeriod": {"value": 30, "unit": "DAY"},
+                "refundMethod": "MONEY_BACK",
+                "returnShippingCostPayer": "BUYER",
+            }
+        return {}
 
     async def _ensure_inventory_location(self) -> str | None:
         """Ensure a default inventory location exists on eBay.
@@ -257,39 +330,41 @@ class EbayLister(IListable):
         except Exception as e:
             logger.warning(f"Failed to list inventory locations: {e}")
 
-        # Step 2: Create a default location
+        # Step 2: Create a default location (try POST first, then PUT)
         location_key = DEFAULT_LOCATION_KEY
-        try:
-            await self._request(
-                "POST",
-                f"{INVENTORY_API}/inventory_location/{location_key}",
-                json_data={
-                    "location": {
-                        "address": {
-                            "addressLine1": "123 Main St",
-                            "city": "San Jose",
-                            "stateOrProvince": "CA",
-                            "postalCode": "95125",
-                            "country": "US",
-                        },
-                    },
-                    "merchantLocationStatus": "ENABLED",
-                    "name": "KonvertIt Default",
-                    "locationTypes": ["WAREHOUSE"],
+        location_payload = {
+            "location": {
+                "address": {
+                    "addressLine1": "123 Main St",
+                    "city": "San Jose",
+                    "stateOrProvince": "CA",
+                    "postalCode": "95125",
+                    "country": "US",
                 },
-                expected_status=(200, 201, 204),
-            )
-            logger.info(f"Inventory location created: {location_key}")
-            return location_key
-        except ListingError as e:
-            error_str = str(e)
-            if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
-                logger.debug(f"Inventory location already exists: {location_key}")
+            },
+            "merchantLocationStatus": "ENABLED",
+            "name": "KonvertIt Default",
+            "locationTypes": ["WAREHOUSE"],
+        }
+
+        for method in ("POST", "PUT"):
+            try:
+                await self._request(
+                    method,
+                    f"{INVENTORY_API}/inventory_location/{location_key}",
+                    json_data=location_payload,
+                    expected_status=(200, 201, 204),
+                )
+                logger.info(f"Inventory location created ({method}): {location_key}")
                 return location_key
-            else:
-                logger.warning(f"Failed to create inventory location: {e}")
-        except Exception as e:
-            logger.warning(f"Unexpected error creating inventory location: {e}")
+            except ListingError as e:
+                error_str = str(e)
+                if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
+                    logger.info(f"Inventory location already exists: {location_key}")
+                    return location_key
+                logger.warning(f"Failed to create inventory location ({method}): {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error creating inventory location ({method}): {e}")
 
         # Both steps failed — return None so the offer omits merchantLocationKey
         logger.warning("Could not find or create inventory location — offer will omit merchantLocationKey")
@@ -330,43 +405,41 @@ class EbayLister(IListable):
             # Step 1.6: Ensure inventory location exists (required for offers)
             location_key = await self._ensure_inventory_location()
 
-            # Step 2: Create or update offer
-            # Check if an offer already exists for this SKU (from a previous failed attempt)
+            # Step 2: Create offer (delete stale orphaned offers first)
             offer_payload = self._build_offer(draft, sku, location_key)
-            offer_id = ""
+
+            # Delete any existing orphaned offers for this SKU (from previous failed attempts)
             try:
                 existing_offers = await self._request(
                     "GET",
                     f"{INVENTORY_API}/offer?sku={sku}",
                     expected_status=(200,),
                 )
-                offers = existing_offers.get("offers", []) if existing_offers else []
-                if offers:
-                    offer_id = offers[0].get("offerId", "")
-                    logger.info(f"Found existing offer {offer_id} for SKU {sku}, updating")
+                for old_offer in (existing_offers.get("offers", []) if existing_offers else []):
+                    old_id = old_offer.get("offerId", "")
+                    old_status = old_offer.get("status", "")
+                    if old_id and old_status != "PUBLISHED":
+                        try:
+                            await self._request(
+                                "DELETE",
+                                f"{INVENTORY_API}/offer/{old_id}",
+                                expected_status=(200, 204),
+                            )
+                            logger.info(f"Deleted stale offer {old_id} (status: {old_status})")
+                        except Exception:
+                            logger.warning(f"Failed to delete stale offer {old_id}")
             except (ListingError, Exception):
-                # No existing offers or lookup failed — will create new
-                offers = []
+                pass  # No existing offers or lookup failed — fine, we'll create new
 
-            if offer_id:
-                # Update existing offer
-                await self._request(
-                    "PUT",
-                    f"{INVENTORY_API}/offer/{offer_id}",
-                    json_data=offer_payload,
-                    expected_status=(200, 204),
-                )
-                logger.info(f"Offer updated: {offer_id}")
-            else:
-                # Create new offer
-                offer_response = await self._request(
-                    "POST",
-                    f"{INVENTORY_API}/offer",
-                    json_data=offer_payload,
-                    expected_status=(200, 201),
-                )
-                offer_id = offer_response.get("offerId", "") if offer_response else ""
-                logger.info(f"Offer created: {offer_id}")
+            # Create fresh offer
+            offer_response = await self._request(
+                "POST",
+                f"{INVENTORY_API}/offer",
+                json_data=offer_payload,
+                expected_status=(200, 201),
+            )
+            offer_id = offer_response.get("offerId", "") if offer_response else ""
+            logger.info(f"Offer created: {offer_id}")
 
             # Step 3: Publish offer
             publish_response = await self._request(
