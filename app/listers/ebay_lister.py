@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # eBay Sell Inventory API base paths
 INVENTORY_API = "/sell/inventory/v1"
 MARKETPLACE_ID = "EBAY_US"
+DEFAULT_LOCATION_KEY = "KI-DEFAULT-US"
 
 
 class EbayLister(IListable):
@@ -150,7 +151,7 @@ class EbayLister(IListable):
 
         return item
 
-    def _build_offer(self, draft: ListingDraft, sku: str) -> dict:
+    def _build_offer(self, draft: ListingDraft, sku: str, location_key: str = DEFAULT_LOCATION_KEY) -> dict:
         """Build the eBay offer payload."""
         offer = {
             "sku": sku,
@@ -164,6 +165,7 @@ class EbayLister(IListable):
                 },
             },
             "countryCode": "US",
+            "merchantLocationKey": location_key,
             "quantityLimitPerBuyer": 5,
             "listingPolicies": {
                 "fulfillmentPolicyId": self._fulfillment_policy_id,
@@ -187,6 +189,42 @@ class EbayLister(IListable):
             "for parts": "FOR_PARTS_OR_NOT_WORKING",
         }
         return condition_map.get(condition.lower(), "NEW")
+
+    async def _ensure_inventory_location(self) -> str:
+        """Ensure a default inventory location exists on eBay.
+
+        eBay requires a merchantLocationKey in every offer. This creates a
+        minimal US-based location on first use. Subsequent calls are no-ops
+        (catches the 'already exists' error).
+
+        Returns:
+            The merchant location key to use in offers.
+        """
+        location_key = DEFAULT_LOCATION_KEY
+        try:
+            await self._request(
+                "POST",
+                f"{INVENTORY_API}/inventory_location/{location_key}",
+                json_data={
+                    "location": {
+                        "address": {
+                            "country": "US",
+                        },
+                    },
+                    "merchantLocationStatus": "ENABLED",
+                    "name": "KonvertIt Default",
+                    "locationTypes": ["WAREHOUSE"],
+                },
+                expected_status=(200, 201, 204),
+            )
+            logger.info(f"Inventory location created: {location_key}")
+        except ListingError as e:
+            # 409 or "already exists" — location was created previously, that's fine
+            if "409" in str(e) or "already exists" in str(e).lower() or "Location already enabled" in str(e):
+                logger.debug(f"Inventory location already exists: {location_key}")
+            else:
+                raise
+        return location_key
 
     async def create_listing(self, draft: ListingDraft) -> ListingResult:
         """
@@ -217,9 +255,12 @@ class EbayLister(IListable):
             )
             logger.info(f"Inventory item created/updated: {sku}")
 
+            # Step 1.5: Ensure inventory location exists (required for offers)
+            location_key = await self._ensure_inventory_location()
+
             # Step 2: Create or update offer
             # Check if an offer already exists for this SKU (from a previous failed attempt)
-            offer_payload = self._build_offer(draft, sku)
+            offer_payload = self._build_offer(draft, sku, location_key)
             offer_id = ""
             try:
                 existing_offers = await self._request(
