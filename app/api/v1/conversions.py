@@ -596,9 +596,9 @@ async def debug_ebay(
         except Exception as e:
             results[f"{name}_policies"] = f"ERROR: {e}"
 
-    # Check inventory locations
+    # Check inventory locations (correct path is /location, NOT /inventory_location)
     try:
-        resp = await lister._request("GET", "/sell/inventory/v1/inventory_location", expected_status=(200,))
+        resp = await lister._request("GET", "/sell/inventory/v1/location", expected_status=(200,))
         locations = resp.get("locations", []) if resp else []
         results["inventory_locations"] = [
             {
@@ -631,12 +631,30 @@ async def debug_ebay(
     except Exception as e:
         results["fulfillment_policy_raw"] = f"ERROR: {e}"
 
-    # Try to run _ensure_fulfillment_shipfrom and report result
+    # Try to ensure inventory location exists (the key fix — correct API path)
     try:
-        await lister._ensure_business_policies()
-        await lister._ensure_fulfillment_shipfrom()
-        results["ensure_shipfrom_result"] = "completed (check policy again)"
+        location_key = await lister._ensure_inventory_location()
+        results["ensure_location_result"] = {
+            "location_key": location_key,
+            "success": location_key is not None,
+        }
     except Exception as e:
-        results["ensure_shipfrom_result"] = f"ERROR: {e}"
+        results["ensure_location_result"] = f"ERROR: {e}"
+
+    # Re-check locations after ensure
+    try:
+        resp = await lister._request("GET", "/sell/inventory/v1/location", expected_status=(200,))
+        locations = resp.get("locations", []) if resp else []
+        results["inventory_locations_after_ensure"] = [
+            {
+                "key": loc.get("merchantLocationKey", ""),
+                "name": loc.get("name", ""),
+                "status": loc.get("merchantLocationStatus", ""),
+                "country": loc.get("location", {}).get("address", {}).get("country", "NOT SET"),
+            }
+            for loc in locations
+        ]
+    except Exception as e:
+        results["inventory_locations_after_ensure"] = f"ERROR: {e}"
 
     return results

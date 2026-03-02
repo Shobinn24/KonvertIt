@@ -164,7 +164,6 @@ class EbayLister(IListable):
                     "currency": draft.currency,
                 },
             },
-            "countryCode": "US",
             "quantityLimitPerBuyer": 5,
             "listingPolicies": {
                 "fulfillmentPolicyId": self._fulfillment_policy_id,
@@ -362,9 +361,12 @@ class EbayLister(IListable):
         """Ensure a default inventory location exists on eBay.
 
         eBay requires a merchantLocationKey in every offer to set the item's
-        country. This method:
+        country (Item.Country). This method:
         1. Tries to list existing inventory locations (uses first one found)
         2. If none exist, creates a default US location
+
+        Note: The correct eBay API path is /sell/inventory/v1/location (NOT
+        /inventory_location). Using the wrong path causes 404 errors.
 
         Returns:
             The merchant location key, or None if we couldn't find/create one.
@@ -373,7 +375,7 @@ class EbayLister(IListable):
         try:
             response = await self._request(
                 "GET",
-                f"{INVENTORY_API}/inventory_location",
+                f"{INVENTORY_API}/location",
                 expected_status=(200,),
             )
             locations = response.get("locations", []) if response else []
@@ -386,7 +388,7 @@ class EbayLister(IListable):
         except Exception as e:
             logger.warning(f"Failed to list inventory locations: {e}")
 
-        # Step 2: Create a default location (try POST first, then PUT)
+        # Step 2: Create a default location
         location_key = DEFAULT_LOCATION_KEY
         location_payload = {
             "location": {
@@ -403,24 +405,43 @@ class EbayLister(IListable):
             "locationTypes": ["WAREHOUSE"],
         }
 
-        for method in ("POST", "PUT"):
-            try:
-                await self._request(
-                    method,
-                    f"{INVENTORY_API}/inventory_location/{location_key}",
-                    json_data=location_payload,
-                    expected_status=(200, 201, 204),
-                )
-                logger.info(f"Inventory location created ({method}): {location_key}")
+        # eBay uses POST to create inventory locations
+        try:
+            await self._request(
+                "POST",
+                f"{INVENTORY_API}/location/{location_key}",
+                json_data=location_payload,
+                expected_status=(200, 201, 204),
+            )
+            logger.info(f"Inventory location created: {location_key}")
+            return location_key
+        except ListingError as e:
+            error_str = str(e)
+            if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
+                logger.info(f"Inventory location already exists: {location_key}")
                 return location_key
-            except ListingError as e:
-                error_str = str(e)
-                if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
-                    logger.info(f"Inventory location already exists: {location_key}")
-                    return location_key
-                logger.warning(f"Failed to create inventory location ({method}): {e}")
-            except Exception as e:
-                logger.warning(f"Unexpected error creating inventory location ({method}): {e}")
+            logger.warning(f"Failed to create inventory location (POST): {e}")
+        except Exception as e:
+            logger.warning(f"Unexpected error creating inventory location: {e}")
+
+        # POST failed — try PUT as fallback (create or replace)
+        try:
+            await self._request(
+                "PUT",
+                f"{INVENTORY_API}/location/{location_key}",
+                json_data=location_payload,
+                expected_status=(200, 201, 204),
+            )
+            logger.info(f"Inventory location created (PUT): {location_key}")
+            return location_key
+        except ListingError as e:
+            error_str = str(e)
+            if "409" in error_str or "already exists" in error_str.lower() or "already enabled" in error_str.lower():
+                logger.info(f"Inventory location already exists: {location_key}")
+                return location_key
+            logger.warning(f"Failed to create inventory location (PUT): {e}")
+        except Exception as e:
+            logger.warning(f"Unexpected error creating inventory location (PUT): {e}")
 
         # Both steps failed — return None so the offer omits merchantLocationKey
         logger.warning("Could not find or create inventory location — offer will omit merchantLocationKey")
