@@ -252,6 +252,62 @@ class EbayLister(IListable):
             except Exception as e:
                 logger.warning(f"Failed to create default {name} policy: {e}")
 
+        # Ensure fulfillment policy has shipFrom (required for Item.Country)
+        await self._ensure_fulfillment_shipfrom()
+
+    async def _ensure_fulfillment_shipfrom(self) -> None:
+        """Add shipFrom to the fulfillment policy if missing.
+
+        When inventory locations aren't available (API returns 404), eBay
+        determines Item.Country from the fulfillment policy's shipFrom field.
+        If shipFrom isn't set, publish fails with 'No Item.Country exists'.
+        """
+        if not self._fulfillment_policy_id:
+            return
+
+        try:
+            # Get full policy details
+            policy = await self._request(
+                "GET",
+                f"/sell/account/v1/fulfillment_policy/{self._fulfillment_policy_id}",
+                expected_status=(200,),
+            )
+            if not policy:
+                return
+
+            # Check if shipFrom is already set
+            if policy.get("shipFrom"):
+                logger.debug("Fulfillment policy already has shipFrom")
+                return
+
+            logger.info(f"Adding shipFrom to fulfillment policy {self._fulfillment_policy_id}")
+
+            # Build update payload with only writable fields (strip read-only ones)
+            update_payload = {
+                "name": policy.get("name", ""),
+                "marketplaceId": policy.get("marketplaceId", self._marketplace_id),
+                "categoryTypes": policy.get("categoryTypes", []),
+                "handlingTime": policy.get("handlingTime", {"value": 3, "unit": "BUSINESS_DAY"}),
+                "shippingOptions": policy.get("shippingOptions", []),
+                "shipToLocations": policy.get("shipToLocations", {}),
+                "globalShipping": policy.get("globalShipping", False),
+                "freightShipping": policy.get("freightShipping", False),
+                "shipFrom": {
+                    "country": "US",
+                    "postalCode": "95125",
+                },
+            }
+
+            await self._request(
+                "PUT",
+                f"/sell/account/v1/fulfillment_policy/{self._fulfillment_policy_id}",
+                json_data=update_payload,
+                expected_status=(200, 204),
+            )
+            logger.info("Successfully added shipFrom to fulfillment policy")
+        except Exception as e:
+            logger.warning(f"Failed to update fulfillment policy with shipFrom: {e}")
+
     def _default_policy_payload(self, policy_type: str) -> dict:
         """Build a default business policy payload for auto-creation."""
         if policy_type == "fulfillment":
