@@ -11,6 +11,7 @@ Provides:
 
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
@@ -266,11 +267,15 @@ async def ebay_callback(
     # Save credentials
     credential_repo = EbayCredentialRepository(db)
 
+    # Compute token expiry from expires_in (eBay access tokens last ~2 hours)
+    expires_in = tokens.get("expires_in", 7200)
+    token_expiry = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+
     await credential_repo.create(
         user_id=user_id,
         access_token=encrypt(tokens.get("access_token", "")),
         refresh_token=encrypt(tokens.get("refresh_token", "")),
-        token_expiry=None,  # Will be set from expires_in on next use
+        token_expiry=token_expiry,
         sandbox_mode=settings.ebay_sandbox,
         store_name="",
     )

@@ -17,6 +17,7 @@ import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, Field
 
@@ -26,11 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.converters.ebay_converter import EbayConverter
-from app.core.encryption import decrypt
+from app.core.encryption import decrypt, encrypt
 from app.core.exceptions import ConversionError, KonvertItError
 from app.db.database import get_db
 from app.db.repositories.conversion_repo import ConversionRepository
 from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
+from app.listers.ebay_auth import EbayAuth
 from app.listers.ebay_lister import EbayLister
 from app.middleware.auth_middleware import get_current_user
 from app.middleware.rate_limiter import (
@@ -83,6 +85,9 @@ class PreviewRequest(BaseModel):
 async def _get_ebay_lister(user_id: str, db: AsyncSession) -> EbayLister | None:
     """Build an EbayLister from the user's stored eBay credentials.
 
+    Automatically refreshes the access token if it has expired (eBay tokens
+    last ~2 hours). The refresh token is valid for 18 months.
+
     Returns None if the user hasn't connected their eBay account,
     which means publish requests will silently stay in draft mode.
     """
@@ -94,9 +99,46 @@ async def _get_ebay_lister(user_id: str, db: AsyncSession) -> EbayLister | None:
 
         cred = creds[0]  # Most recent credential
         settings = get_settings()
+        access_token = decrypt(cred.access_token)
+
+        # Check if token is expired or will expire within 5 minutes
+        needs_refresh = False
+        if cred.token_expiry is not None:
+            # Add buffer of 5 minutes to avoid mid-request expiry
+            if datetime.now(UTC) >= cred.token_expiry - timedelta(minutes=5):
+                needs_refresh = True
+                logger.info(f"eBay access token expired for user {user_id}, refreshing...")
+        else:
+            # No expiry stored (legacy credential) — try refreshing to be safe
+            needs_refresh = True
+            logger.info(f"No token_expiry stored for user {user_id}, refreshing token...")
+
+        if needs_refresh:
+            try:
+                ebay_auth = EbayAuth()
+                refresh_token = decrypt(cred.refresh_token)
+                new_tokens = await ebay_auth.refresh_token(refresh_token)
+
+                access_token = new_tokens.get("access_token", "")
+                expires_in = new_tokens.get("expires_in", 7200)
+                new_expiry = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+
+                # Update stored tokens in DB
+                await repo.update_tokens(
+                    credential_id=cred.id,
+                    access_token=encrypt(access_token),
+                    refresh_token=cred.refresh_token,  # Keep existing (encrypted)
+                    token_expiry=new_expiry,
+                )
+                await db.commit()
+                logger.info(f"eBay token refreshed for user {user_id}, expires in {expires_in}s")
+            except Exception as refresh_err:
+                logger.error(f"Failed to refresh eBay token for user {user_id}: {refresh_err}")
+                # Fall through with the old token — it might still work
+                # if the expiry check was wrong (e.g., None expiry but token is still valid)
 
         return EbayLister(
-            access_token=decrypt(cred.access_token),
+            access_token=access_token,
             base_url=settings.ebay_base_url,
             fulfillment_policy_id=settings.ebay_fulfillment_policy_id,
             payment_policy_id=settings.ebay_payment_policy_id,
