@@ -108,6 +108,54 @@ class TestPayloadBuilding:
         item = lister._build_inventory_item(sample_draft)
         assert item["product"]["aspects"] == {"Brand": ["Unbranded"]}
 
+    def test_build_inventory_item_whitespace_only_brand(self, lister, sample_draft):
+        """Should fallback to 'Unbranded' for whitespace-only brand."""
+        sample_draft.brand = "   "
+        item = lister._build_inventory_item(sample_draft)
+        assert item["product"]["aspects"]["Brand"] == ["Unbranded"]
+
+    def test_build_inventory_item_brand_control_chars(self, lister, sample_draft):
+        """Should strip control characters from brand."""
+        sample_draft.brand = "Ank\x00er\x1FPro"
+        item = lister._build_inventory_item(sample_draft)
+        brand = item["product"]["aspects"]["Brand"][0]
+        assert "\x00" not in brand
+        assert "\x1f" not in brand
+        assert "Ank" in brand and "Pro" in brand
+
+    def test_build_inventory_item_brand_truncation(self, lister, sample_draft):
+        """Should truncate brand to 200 characters."""
+        sample_draft.brand = "A" * 250
+        item = lister._build_inventory_item(sample_draft)
+        assert len(item["product"]["aspects"]["Brand"][0]) == 200
+
+    def test_build_inventory_item_with_extra_aspects(self, lister, sample_draft):
+        """Should include category-required aspects alongside Brand."""
+        extra = {"Type": ["Wall Charger"], "Color": ["Black"]}
+        item = lister._build_inventory_item(sample_draft, extra_aspects=extra)
+        assert item["product"]["aspects"]["Brand"] == ["Anker"]
+        assert item["product"]["aspects"]["Type"] == ["Wall Charger"]
+        assert item["product"]["aspects"]["Color"] == ["Black"]
+
+    def test_infer_aspect_value_matches_title(self, lister):
+        """Should match expected value found in title."""
+        result = lister._infer_aspect_value(
+            "Type", ["Cups", "Plates", "Napkins"], "350-Piece Silver Plates Set", "",
+        )
+        assert result == "Plates"
+
+    def test_infer_aspect_value_falls_back_to_first(self, lister):
+        """Should use first expected value when no match found."""
+        result = lister._infer_aspect_value(
+            "Type", ["Cups", "Plates", "Napkins"], "Charger 40W", "",
+        )
+        assert result == "Cups"
+
+    def test_infer_aspect_value_no_values(self, lister):
+        """Should return N/A when no expected values available."""
+        result = lister._infer_aspect_value("Type", [], "Charger 40W", "")
+        assert result == "N/A"
+
     def test_build_offer(self, lister, sample_draft):
         """Should build correct offer payload."""
         offer = lister._build_offer(sample_draft, "KI-B09C5RG6KV")

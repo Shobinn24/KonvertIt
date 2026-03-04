@@ -92,7 +92,7 @@ class ListingDraft(BaseModel):
     currency: str = Field(default="USD", max_length=3)
     images: list[str] = Field(default_factory=list, max_length=12)
     category_id: str = Field(default="")
-    brand: str = Field(default="")
+    brand: str = Field(default="", max_length=200)
     condition: str = Field(default="New")
     sku: str = Field(default="")
     quantity: int = Field(default=1, ge=1)

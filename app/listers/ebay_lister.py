@@ -130,8 +130,13 @@ class EbayLister(IListable):
             text = text[: max_length - 3] + "..."
         return text
 
-    def _build_inventory_item(self, draft: ListingDraft) -> dict:
-        """Build the eBay inventory item payload from a listing draft."""
+    def _build_inventory_item(self, draft: ListingDraft, extra_aspects: dict[str, list[str]] | None = None) -> dict:
+        """Build the eBay inventory item payload from a listing draft.
+
+        Args:
+            draft: The listing draft.
+            extra_aspects: Additional category-required aspects (e.g. {"Type": ["Plates"]}).
+        """
         # Inventory item product.description has a 4000 char limit (plain text).
         # The full HTML goes in the offer's listingDescription instead.
         plain_desc = self._strip_html(draft.description_html)
@@ -150,10 +155,19 @@ class EbayLister(IListable):
             },
         }
 
-        if draft.brand:
-            item["product"]["aspects"] = {"Brand": [draft.brand]}
-        else:
-            item["product"]["aspects"] = {"Brand": ["Unbranded"]}
+        # Sanitize brand: trim, collapse whitespace, strip control chars, truncate
+        raw_brand = draft.brand or ""
+        brand_clean = re.sub(r"\s+", " ", raw_brand.strip())
+        brand_clean = re.sub(r"[\x00-\x1F\x7F]", "", brand_clean)
+        if len(brand_clean) > 200:
+            brand_clean = brand_clean[:200]
+
+        # Build aspects: Brand + any category-required aspects
+        aspects = item["product"].setdefault("aspects", {})
+        aspects["Brand"] = [brand_clean] if brand_clean else ["Unbranded"]
+
+        if extra_aspects:
+            aspects.update(extra_aspects)
 
         if draft.sku:
             item["sku"] = draft.sku
@@ -188,6 +202,67 @@ class EbayLister(IListable):
             logger.warning(f"Failed to get category suggestion: {e}")
 
         return ""
+
+    async def _get_required_aspects(self, category_id: str) -> dict[str, list[str]]:
+        """Fetch required item specifics for a category from eBay Taxonomy API.
+
+        Returns a dict mapping aspect name -> list of expected values.
+        Only includes aspects that are REQUIRED (aspectRequired=True) or
+        recommended with expected values, excluding Brand (handled separately).
+        """
+        try:
+            response = await self._request(
+                "GET",
+                f"/commerce/taxonomy/v1/category_tree/0/get_item_aspects_for_category?category_id={category_id}",
+                expected_status=(200,),
+            )
+            if not response:
+                return {}
+
+            aspects: dict[str, list[str]] = {}
+            for aspect in response.get("aspects", []):
+                name = aspect.get("localizedAspectName", "")
+                constraint = aspect.get("aspectConstraint", {})
+                is_required = constraint.get("aspectRequired", False)
+
+                if not name or not is_required or name == "Brand":
+                    continue
+
+                # Collect expected values for this aspect
+                values = [
+                    v.get("localizedValue", "")
+                    for v in aspect.get("aspectValues", [])
+                    if v.get("localizedValue")
+                ]
+                aspects[name] = values
+
+            if aspects:
+                logger.info(f"Required aspects for category {category_id}: {list(aspects.keys())}")
+            return aspects
+
+        except Exception as e:
+            logger.warning(f"Failed to get item aspects for category {category_id}: {e}")
+            return {}
+
+    def _infer_aspect_value(self, aspect_name: str, expected_values: list[str], title: str, description: str) -> str:
+        """Try to infer an aspect value from product title or description.
+
+        Checks if any of the expected values appear in the title or description.
+        Returns the matched value, or the first expected value as a fallback.
+        """
+        title_lower = title.lower()
+        desc_lower = description.lower()
+        search_text = f"{title_lower} {desc_lower}"
+
+        for value in expected_values:
+            if value.lower() in search_text:
+                return value
+
+        # Fallback: use first expected value if available
+        if expected_values:
+            return expected_values[0]
+
+        return "N/A"
 
     def _build_offer(self, draft: ListingDraft, sku: str, location_key: str | None = None) -> dict:
         """Build the eBay offer payload."""
@@ -519,23 +594,13 @@ class EbayLister(IListable):
         logger.info(f"[{cid}] Creating eBay listing for SKU: {sku}")
 
         try:
-            # Step 1: Create or update inventory item
-            inventory_payload = self._build_inventory_item(draft)
-            await self._request(
-                "PUT",
-                f"{INVENTORY_API}/inventory_item/{encoded_sku}",
-                json_data=inventory_payload,
-                expected_status=(200, 201, 204),
-            )
-            logger.info(f"[{cid}] Inventory item created/updated: {sku}")
-
-            # Step 1.5: Auto-fetch business policies if not configured
+            # Step 1: Auto-fetch business policies if not configured
             await self._ensure_business_policies()
 
-            # Step 1.6: Ensure inventory location exists (required for offers)
+            # Step 1.5: Ensure inventory location exists (required for offers)
             location_key = await self._ensure_inventory_location()
 
-            # Step 1.7: Auto-detect leaf category if not set
+            # Step 2: Auto-detect leaf category if not set
             if not draft.category_id:
                 suggested = await self._get_suggested_category(draft.title)
                 if suggested:
@@ -550,7 +615,28 @@ class EbayLister(IListable):
                         details={"title": draft.title, "sku": sku},
                     )
 
-            # Step 2: Create offer (delete stale orphaned offers first)
+            # Step 2.5: Fetch required aspects for the category and infer values
+            extra_aspects: dict[str, list[str]] = {}
+            if draft.category_id:
+                required = await self._get_required_aspects(draft.category_id)
+                plain_desc = self._strip_html(draft.description_html)
+                for aspect_name, expected_values in required.items():
+                    value = self._infer_aspect_value(
+                        aspect_name, expected_values, draft.title, plain_desc,
+                    )
+                    extra_aspects[aspect_name] = [value]
+
+            # Step 3: Create or update inventory item (with category-specific aspects)
+            inventory_payload = self._build_inventory_item(draft, extra_aspects)
+            await self._request(
+                "PUT",
+                f"{INVENTORY_API}/inventory_item/{encoded_sku}",
+                json_data=inventory_payload,
+                expected_status=(200, 201, 204),
+            )
+            logger.info(f"[{cid}] Inventory item created/updated: {sku}")
+
+            # Step 4: Create offer (delete stale orphaned offers first)
             offer_payload = self._build_offer(draft, sku, location_key)
 
             # Delete any existing orphaned offers for this SKU (from previous failed attempts)
