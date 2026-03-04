@@ -31,6 +31,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{__version__} ({settings.app_env.value})")
     yield
     # Shutdown
+    from app.db.database import dispose_engine
+    await dispose_engine()
     await close_redis()
     logger.info(f"Shutting down {settings.app_name}")
 

@@ -37,6 +37,11 @@ async_session_factory = async_sessionmaker(
 )
 
 
+async def dispose_engine() -> None:
+    """Dispose the async engine and close all pooled connections."""
+    await engine.dispose()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency that provides an async database session.

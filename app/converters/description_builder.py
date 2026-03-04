@@ -427,7 +427,10 @@ class DescriptionBuilder:
 
         # Source marketplace for transparency
         if product.source_marketplace:
-            marketplace_display = product.source_marketplace.value.title()
+            try:
+                marketplace_display = product.source_marketplace.value.title()
+            except AttributeError:
+                marketplace_display = str(product.source_marketplace).title()
             specs.append(("Source", marketplace_display))
 
         return specs

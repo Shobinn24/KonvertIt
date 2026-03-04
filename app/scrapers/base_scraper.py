@@ -20,6 +20,8 @@ from app.scrapers.proxy_manager import Proxy, ProxyManager
 
 logger = logging.getLogger(__name__)
 
+MAX_HTML_SIZE = 5_000_000  # 5 MB — reject suspiciously large pages
+
 
 class BaseScraper(IScrapeable):
     """
@@ -150,7 +152,13 @@ class BaseScraper(IScrapeable):
         # Subclasses can override _wait_for_content for marketplace-specific waits.
         await self._wait_for_content(page)
 
-        return await page.content()
+        content = await page.content()
+        if len(content) > MAX_HTML_SIZE:
+            raise ScrapingError(
+                f"Page content too large ({len(content):,} bytes, max {MAX_HTML_SIZE:,})",
+                details={"url": url, "content_length": len(content)},
+            )
+        return content
 
     async def _wait_for_content(self, page) -> None:
         """Wait for dynamic content to render after navigation.

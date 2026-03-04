@@ -159,7 +159,7 @@ def retry_with_backoff(
     base_delay: float = 2.0,
     multiplier: float = 2.0,
     jitter_pct: float = 0.25,
-    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+    retryable_exceptions: tuple[type[Exception], ...] = (IOError, TimeoutError, OSError, ConnectionError),
 ) -> Callable:
     """
     Async retry decorator with exponential backoff and jitter.

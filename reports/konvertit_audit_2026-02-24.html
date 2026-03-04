@@ -1,0 +1,68 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KonvertIt Code Audit - 2026-02-24</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; color: #111; }
+    h1 { margin-bottom: 0.25rem; }
+    h2 { margin-top: 2rem; border-bottom: 1px solid #eee; padding-bottom: 0.25rem; }
+    code, pre { background: #f7f7f9; padding: 0.2rem 0.4rem; border-radius: 4px; }
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.8rem; }
+    .high { background: #fee2e2; color: #991b1b; }
+    .medium { background: #ffedd5; color: #9a3412; }
+    .low { background: #e0e7ff; color: #3730a3; }
+    ul { line-height: 1.6; }
+    .section { margin-top: 1rem; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KonvertIt Code Audit</h1>
+    <div class="section">Date: 2026-02-24</div>
+  </header>
+
+  <section>
+    <h2>Today's commits</h2>
+    <ul>
+      <li><span class="mono">ca323e2</span> — Add Help link to sidebar navigation</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Uncommitted changes summary</h2>
+    <ul>
+      <li>Backend: Stripe billing configuration and webhook handling; user model extended with Stripe IDs and tier timestamps; repository lookup by Stripe customer; async token refresh reads DB tier; new WebSocket event type for tier changes; routers for billing and webhooks registered.</li>
+      <li>Frontend: Added billing success route, BillingCard in settings, WebSocket toast for tier updates, landing page CTA tweak, type extension for WSEventType.</li>
+      <li>Dependencies: Added <code>stripe>=11.0.0</code>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Key risks and recommendations</h2>
+    <ul>
+      <li><span class="badge high">High</span> Webhook security hardening: normalize signature header, avoid logging payloads/tokens.</li>
+      <li><span class="badge medium">Medium</span> Idempotency and replay protection for Stripe events to avoid duplicate processing.</li>
+      <li><span class="badge medium">Medium</span> Ensure all call sites await new async <code>refresh_access_token</code>.</li>
+      <li><span class="badge medium">Medium</span> Initialize Stripe API key at app startup; require secrets in prod.</li>
+      <li><span class="badge low">Low</span> WebSocket event typing and safe tier handling on the client.</li>
+      <li><span class="badge low">Low</span> Database constraints for subscription ID if assuming single subscription per user.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Notable areas reviewed</h2>
+    <ul>
+      <li>app/api/v1/webhooks.py — Stripe webhook verification, routing, and WS notifications.</li>
+      <li>app/services/user_service.py — async refresh token logic using DB tier.</li>
+      <li>app/db/models.py — new Stripe fields and potential uniqueness/indexing.</li>
+      <li>frontend/src/components/shared/WebSocketToast.tsx — tier_changed handling and UI updates.</li>
+      <li>app/main.py & app/config.py — SDK initialization and configuration rigor.</li>
+      <li>tests/unit/test_user_service.py — updated tests for async refresh.</li>
+    </ul>
+  </section>
+</body>
+</html>

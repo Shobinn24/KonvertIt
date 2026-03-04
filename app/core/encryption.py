@@ -18,7 +18,14 @@ def _get_fernet() -> Fernet:
     global _fernet
     if _fernet is None:
         settings = get_settings()
-        _fernet = Fernet(settings.encryption_key.encode())
+        try:
+            _fernet = Fernet(settings.encryption_key.encode())
+        except Exception as e:
+            raise ValueError(
+                f"Invalid ENCRYPTION_KEY: {e}. "
+                "Generate a valid key with: python -c "
+                "'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            ) from e
     return _fernet
 
 

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API v1 Audit Report</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --card:#0b1220; --muted:#94a3b8; --fg:#e2e8f0; --accent:#22d3ee; --warn:#f59e0b; --err:#ef4444; --ok:#10b981; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1220,#0f172a 30%,#0b1220);color:var(--fg);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    header{position:sticky;top:0;backdrop-filter:blur(10px);background:rgba(15,23,42,.7);border-bottom:1px solid rgba(148,163,184,.15);z-index:10}
+    .wrap{max-width:1100px;margin:0 auto;padding:18px 20px}
+    h1{margin:0;font-size:22px;letter-spacing:.3px}
+    h2{margin:28px 0 10px;font-size:18px}
+    h3{margin:18px 0 8px;font-size:15px;color:#cbd5e1}
+    section{background:rgba(17,24,39,.6);border:1px solid rgba(148,163,184,.12);border-radius:12px;padding:18px 18px 8px;margin:16px 0}
+    .meta{display:flex;gap:14px;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+    .card{background:rgba(11,18,32,.65);border:1px solid rgba(148,163,184,.1);border-radius:12px;padding:14px}
+    ul{margin:8px 0 10px 20px}
+    li{margin:6px 0}
+    code,kbd{background:#0b1220;border:1px solid rgba(148,163,184,.15);padding:1px 6px;border-radius:6px;color:#cbd5e1}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(148,163,184,.2);color:#e5e7eb;font-size:11px;letter-spacing:.2px}
+    .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.accent{color:var(--accent)}
+    .kbd{padding:2px 6px;border-radius:6px;background:#0b1220;border:1px solid rgba(148,163,184,.25)}
+    .foot{color:var(--muted);font-size:12px;margin-top:8px}
+    a{color:var(--accent);text-decoration:none}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#b6c3d3}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>API v1 Audit Report</h1>
+      <div class="meta">
+        <span class="tag">Scope: app/api/v1</span>
+        <span class="tag">Generated: <script>document.write(new Date().toISOString())</script></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>Summary</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Strengths</h3>
+          <ul>
+            <li>Clear router structure per domain with coherent prefixes and tags.</li>
+            <li>JWT-protected endpoints; Stripe webhook signature verification.</li>
+            <li>Tenant isolation checks on resource fetch/update endpoints.</li>
+            <li>Good input validation with Pydantic models and constraints.</li>
+            <li>Rate limiting integrated on conversion endpoints with headers.</li>
+            <li>Resource hygiene around BrowserManager in conversion flow.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Key Risks</h3>
+          <ul>
+            <li class="err">products.py scrape endpoint may not start/close BrowserManager properly.</li>
+            <li class="warn">OAuth state nonce in eBay connect is not persisted/validated server-side.</li>
+            <li class="warn">Frontend redirect URL inferred from CORS origins is brittle.</li>
+            <li class="warn">SSE path monkey-patches service methods; prefer explicit hooks.</li>
+            <li class="warn">Stripe webhook idempotency cache is in-memory only (per-process).</li>
+            <li class="warn">Some endpoints return dicts without response_model guarantees.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Module Reviews</h2>
+
+      <div class="card">
+        <h3>auth.py</h3>
+        <ul>
+          <li>Endpoints: register, login, refresh, eBay connect/callback/status.</li>
+          <li>Maps domain errors to appropriate HTTP statuses; uses settings on refresh to embed current tier.</li>
+          <li class="warn">State parameter uses <code>user_id:csrf_nonce</code> but nonce is not persisted/validated. Persist with TTL to harden CSRF protection.</li>
+          <li class="warn">Use a dedicated <code>frontend_base_url</code> setting for redirects instead of deriving from CORS origins.</li>
+          <li>Tokens stored encrypted; expiry derived from <code>expires_in</code>. Consider persisting <code>store_name</code> if available.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>billing.py</h3>
+        <ul>
+          <li>Endpoints: checkout, portal, subscription. Validates tier via regex.</li>
+          <li>Clear error mapping; logs unexpected failures.</li>
+          <li class="warn">Consider Stripe idempotency keys on checkout to avoid duplicate sessions on retries.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>conversions.py</h3>
+        <ul>
+          <li>Endpoints: single convert, bulk JSON, preview, list, SSE bulk, job status/cancel, and debug eBay.</li>
+          <li>Rate-limited; sends WS events on completion; robust token refresh for eBay credentials.</li>
+          <li>Uses async context manager to start/close BrowserManager. Good.</li>
+          <li class="warn">SSE bulk converts via runtime monkey-patching of <code>convert_url</code>. Prefer explicit hook parameters (on_item_start/on_step/on_complete).</li>
+          <li class="warn">Ensure <code>add_rate_limit_headers</code> works with dict headers used for SSE, not only <code>Response</code>.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>discovery.py</h3>
+        <ul>
+          <li>Endpoint: search with auth; clean exception mapping (400/429/500).</li>
+          <li>Searches are free (no rate limit). Documentation reflects that.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>listings.py</h3>
+        <ul>
+          <li>Endpoints: list, get, update price, end listing. Enforces tenant isolation.</li>
+          <li>WS notifications on price updates and end actions. Good UX.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>price_history.py</h3>
+        <ul>
+          <li>Endpoints: historical prices and aggregate stats, scoped to user products.</li>
+          <li>Shared helper <code>_get_user_product</code> provides validation and isolation.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>products.py</h3>
+        <ul>
+          <li>Endpoints: scrape (preview conversion), list products, get product. Enforces tenant isolation.</li>
+          <li class="err">Scrape endpoint constructs <code>ConversionService(browser_manager=BrowserManager())</code> but does not start/close the browser. Align with conversions.py by wrapping in an async context that starts and closes the BrowserManager, or refactor to a common context helper.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>users.py</h3>
+        <ul>
+          <li>Endpoints: profile, update profile, usage, admin set-tier. Uses UserService for updates.</li>
+          <li>Usage combines repo stats and tier limits from <code>TIER_RATE_LIMITS</code>.</li>
+          <li class="warn">Admin auth via <code>X-Admin-Key</code> equals <code>secret_key</code>; adequate but coarse-grained. Ensure upstream logging doesn’t capture this header.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>webhooks.py</h3>
+        <ul>
+          <li>Stripe signature verification; in-memory LRU for idempotency; delegates to BillingService.</li>
+          <li>Emits WS tier-changed events; avoids logging payload secrets.</li>
+          <li class="warn">If horizontally scaled, use Redis/DB for event-id dedupe across nodes.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>ws.py</h3>
+        <ul>
+          <li>WS auth via JWT query param; enforces access token type and per-tier connection limits.</li>
+          <li>Sends welcome and heartbeat; handles ping messages; cleans up on disconnect.</li>
+          <li class="warn">Validate <code>ws_heartbeat_interval</code> as numeric at config-load time (pydantic settings) to avoid runtime cast failures.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recommendations (Prioritized)</h2>
+      <ol>
+        <li class="err">Fix BrowserManager lifecycle in <span class="mono">products.py</span> scrape endpoint to start/close browser around preview_conversion.</li>
+        <li class="warn">Persist and validate OAuth <span class="mono">state</span> nonce (short TTL) for eBay connect/callback.</li>
+        <li class="warn">Introduce <span class="mono">frontend_base_url</span> config and use it for redirects; avoid deriving from CORS origins.</li>
+        <li class="warn">Refactor SSE bulk conversion to use explicit hooks rather than monkey-patching service methods.</li>
+        <li class="warn">Back Stripe webhook idempotency with Redis/DB if running multiple replicas.</li>
+        <li class="warn">Add response_model annotations for endpoints returning dicts to lock API contracts and enhance OpenAPI.</li>
+        <li class="warn">Confirm <span class="mono">add_rate_limit_headers</span> works with header dicts and Response objects.</li>
+        <li>Harden config validation (types/ranges) via pydantic settings; ensure <span class="mono">ws_heartbeat_interval</span> is numeric.</li>
+        <li>Verify logging configuration never emits secrets (tokens, Stripe signatures) in any middleware.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Appendix: Notable Patterns</h2>
+      <ul>
+        <li>Tenant isolation via repository checks on user_id is consistently applied.</li>
+        <li>Best-effort WebSocket notifications avoid coupling API responses to push layer.</li>
+        <li>Token refresh path for eBay accounts persists new expiry and avoids mid-request expirations with a 5-minute buffer.</li>
+      </ul>
+      <p class="foot">This report summarizes a static review of app/api/v1 as of generation time and may not reflect runtime configuration or external service availability.</p>
+    </section>
+  </main>
+</body>
+</html>

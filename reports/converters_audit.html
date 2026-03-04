@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Converters Audit Report</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --card:#0b1220; --muted:#94a3b8; --fg:#e2e8f0; --accent:#22d3ee; --warn:#f59e0b; --err:#ef4444; --ok:#10b981; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1220,#0f172a 35%,#0b1220);color:var(--fg);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    header{position:sticky;top:0;backdrop-filter:blur(10px);background:rgba(15,23,42,.7);border-bottom:1px solid rgba(148,163,184,.15);z-index:10}
+    .wrap{max-width:1100px;margin:0 auto;padding:18px 20px}
+    h1{margin:0;font-size:22px;letter-spacing:.3px}
+    h2{margin:28px 0 10px;font-size:18px}
+    h3{margin:18px 0 8px;font-size:15px;color:#cbd5e1}
+    section{background:rgba(17,24,39,.6);border:1px solid rgba(148,163,184,.12);border-radius:12px;padding:18px 18px 8px;margin:16px 0}
+    .meta{display:flex;gap:14px;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+    .card{background:rgba(11,18,32,.65);border:1px solid rgba(148,163,184,.1);border-radius:12px;padding:14px}
+    ul{margin:8px 0 10px 20px}
+    li{margin:6px 0}
+    code,kbd{background:#0b1220;border:1px solid rgba(148,163,184,.15);padding:1px 6px;border-radius:6px;color:#cbd5e1}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(148,163,184,.2);color:#e5e7eb;font-size:11px;letter-spacing:.2px}
+    .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.accent{color:var(--accent)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#b6c3d3}
+    .foot{color:var(--muted);font-size:12px;margin-top:8px}
+    a{color:var(--accent);text-decoration:none}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Converters Audit Report</h1>
+      <div class="meta">
+        <span class="tag">Scope: app/converters</span>
+        <span class="tag">Generated: <script>document.write(new Date().toISOString())</script></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>Summary</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Strengths</h3>
+          <ul>
+            <li>Clear abstraction via <span class="mono">BaseConverter</span> with explicit responsibilities.</li>
+            <li>Modular components: title optimization, description building, and marketplace-specific converter.</li>
+            <li>Safety: description HTML uses inline escaping for user-provided content to prevent XSS.</li>
+            <li>Title optimizer has a well-defined, incremental pipeline with analysis output for debugging.</li>
+            <li>eBay converter respects eBay constraints (80-char title, up to 12 images).</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Key Risks / Gaps</h3>
+          <ul>
+            <li class="warn">Fixed <span class="mono">condition="New"</span> in eBay drafts; may be incorrect for some products.</li>
+            <li class="warn">SKU generation <span class="mono">KI-&lt;source_id&gt;</span> may collide across marketplaces or when IDs repeat.</li>
+            <li class="warn">DescriptionBuilder assumes <span class="mono">product.source_marketplace</span> is an enum with <span class="mono">.value</span>; may break if plain string.</li>
+            <li class="warn">URL/image safety relies on simple escaping; image URLs aren’t validated/sanitized.</li>
+            <li class="warn">Title abbreviations can be locale/vertical-sensitive; aggressive rules may reduce clarity in some categories.</li>
+            <li class="warn">No category mapping or item specifics population yet (mentioned as Phase 2).</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Module Reviews</h2>
+
+      <div class="card">
+        <h3>base_converter.py</h3>
+        <ul>
+          <li>Defines abstract interface for marketplace converters: <span class="mono">convert</span>, <span class="mono">optimize_title</span>, <span class="mono">build_description</span>.</li>
+          <li>Implements <span class="mono">IConvertable</span> contract from <span class="mono">app.core.interfaces</span>. Clean boundary.</li>
+          <li>Recommendation: Add type hints for return values already present; optionally document expected side-effect-free behavior.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>description_builder.py</h3>
+        <ul>
+          <li>Provides three responsive, inline-CSS templates: Modern, Classic, Minimal; returns HTML strings.</li>
+          <li>Auto-extracts bullet features from description via regex (bullets, numbered lists, or sentences fallback).</li>
+          <li>Spec table built from brand/category/availability and displays source marketplace label.</li>
+          <li class="ok">Escapes user content (<span class="mono">_escape</span>) to mitigate XSS within text and attributes.</li>
+          <li class="warn">Assumes <span class="mono">product.source_marketplace.value.title()</span>; ensure compatibility if using strings.</li>
+          <li class="warn">Image URLs are only escaped; consider URL validation/whitelisting to prevent broken/malicious links.</li>
+          <li>Recommendation: Add alt text fallbacks, cap gallery size consistently (already caps to 4 extras), and optionally support more item specifics.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>title_optimizer.py</h3>
+        <ul>
+          <li>Stepwise optimization: clean → remove marketplace noise → abbreviate → deduplicate → remove filler → truncate.</li>
+          <li>Provides <span class="mono">optimize_with_analysis</span> returning detailed <span class="mono">TitleAnalysis</span> metadata.</li>
+          <li>Abbreviations cover units and common terms (e.g., Wi‑Fi→WiFi, Stainless Steel→SS, Pack of N→N‑Pack).</li>
+          <li>Noise removal targets Amazon/Walmart promotional and badge text, trailing model codes, TM/®/© symbols.</li>
+          <li class="warn">Regex-based changes are global and context-agnostic; edge cases could over-abbreviate (e.g., brand/model names).</li>
+          <li>Recommendations:
+            <ul>
+              <li>Guard common brand terms from abbreviation via a protected-terms allowlist.</li>
+              <li>Expand stop-words for specific categories or languages behind configuration.</li>
+              <li>Expose max_length as a strategy parameter when marketplaces differ.</li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>ebay_converter.py</h3>
+        <ul>
+          <li>Composes <span class="mono">TitleOptimizer</span> + <span class="mono">DescriptionBuilder</span> to generate <span class="mono">ListingDraft</span> for eBay.</li>
+          <li>Enforces eBay constraints: 80-char title, 12-image limit, sets <span class="mono">TargetMarketplace.EBAY</span>.</li>
+          <li class="warn">Uses fixed <span class="mono">condition="New"</span>; consider deriving from product attributes or defaulting to configurable value.</li>
+          <li class="warn">SKU generation <span class="mono">KI-&lt;source_product_id&gt;</span> is simple; consider namespacing by marketplace and normalizing.</li>
+          <li>Recommendation: Begin category mapping and item specifics population (e.g., brand, MPN, color, size) when available.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recommendations (Prioritized)</h2>
+      <ol>
+        <li class="warn">Introduce configurable condition mapping for eBay drafts; avoid always setting <span class="mono">New</span>.</li>
+        <li class="warn">Harden SKU generation to ensure uniqueness across sources (e.g., <span class="mono">EBAY-KI-&lt;market&gt;-&lt;hash(source_id)&gt;</span>).</li>
+        <li class="warn">Make <span class="mono">source_marketplace</span> handling robust in DescriptionBuilder: accept enums or strings safely.</li>
+        <li>Validate/sanitize image URLs and optionally proxy them to ensure reliability and reduce mixed-content issues.</li>
+        <li>Add protected-terms list in TitleOptimizer to prevent abbreviation of sensitive brand/model tokens.</li>
+        <li>Add category mapping and basic item specifics extraction (brand, color, size, material) to improve listing quality.</li>
+        <li>Provide response-model-like types or dataclasses for template outputs if later serialized beyond eBay HTML.</li>
+        <li>Expand unit tests around edge cases: abbreviation collisions, unicode titles, long numeric model codes, minimal descriptions.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Appendix: Notable Patterns</h2>
+      <ul>
+        <li>Separation of concerns: optimization, description templating, and conversion are independently testable components.</li>
+        <li>Inline CSS ensures eBay compatibility; templates are mobile-friendly and lightweight.</li>
+        <li>Optimization pipeline is incremental and analysis-friendly, aiding troubleshooting and A/B testing.</li>
+      </ul>
+      <p class="foot">This report summarizes a static review of app/converters as of generation time and may not reflect runtime data shape or upstream scraper variations.</p>
+    </section>
+  </main>
+</body>
+</html>

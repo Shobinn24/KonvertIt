@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KonvertIt Middleware Audit</title>
+  <style>
+    :root{color-scheme:light dark}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;line-height:1.5;margin:0;background:#0b0c0f;color:#e6e6e6}
+    header{padding:24px 20px;border-bottom:1px solid #1e2130;background:#0f1116;position:sticky;top:0}
+    h1{margin:0;font-size:20px}
+    main{max-width:1000px;margin:0 auto;padding:28px 20px}
+    section{margin:24px 0;padding:20px;border:1px solid #1e2130;border-radius:10px;background:#0e1015}
+    h2{margin:0 0 12px 0;font-size:18px}
+    h3{margin:16px 0 8px 0;font-size:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .kvs{display:grid;grid-template-columns:220px 1fr;gap:8px 16px}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+    .ok{color:#6ad16a}
+    .warn{color:#ffd166}
+    .crit{color:#ff6b6b}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #2a2f45;background:#121521;margin-right:6px}
+    ul{margin:6px 0 6px 18px}
+    .foot{opacity:.7;font-size:12px;margin-top:24px}
+    a{color:#7ab7ff}
+    .file{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KonvertIt Middleware Audit</h1>
+  </header>
+  <main>
+    <section>
+      <h2>Scope</h2>
+      <div class="grid">
+        <div>Reviewed files in <span class="file">app/middleware/</span>:
+          <ul>
+            <li>auth_middleware.py</li>
+            <li>exception_handler.py</li>
+            <li>logging_middleware.py</li>
+            <li>rate_limiter.py</li>
+            <li>security_headers.py</li>
+          </ul>
+        </div>
+        <div>Objective: assess security, correctness, reliability, performance, observability, and test coverage alignment. Produce actionable recommendations.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Summary</h2>
+      <ul>
+        <li class="ok">Strengths: clear separation of concerns, robust JWT decode path, structured logging with request correlation, safe fail-open on Redis, minimal header surface, production-only HSTS.</li>
+        <li class="warn">Medium risks: BaseHTTPMiddleware limitations for long-running bodies; CSP overly strict could affect future features; Redis connection lifecycle singleton may leak across reloads; optional auth swallows errors broadly.</li>
+        <li class="crit">High risks: none identified in code review. Ensure secrets/algorithms align with configuration and token issuance.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Detailed Findings</h2>
+
+      <h3>1) Authentication (auth_middleware.py)</h3>
+      <div class="kvs">
+        <div>JWT validation</div><div>Uses jose.jwt.decode with Settings.secret_key and single algorithm from settings. Validates subject and token type for access flows. On JWTError → 401 with WWW-Authenticate.</div>
+        <div>Error handling</div><div>Logs warnings on verification failure; returns 401. Optional variant returns None on any HTTPException (suppresses specific causes).</div>
+        <div>User status</div><div>require_active_user validates UUID format, loads user from DB, checks is_active; returns 403 for deactivated which is correct differentiation.</div>
+        <div>Security posture</div><div>+ Validates token type. + UUID parsing prevents injection of non-UUID sub. – Does not check token audience/issuer/nonce; consider enforcing aud/iss when tokens are minted outside the API.</div>
+        <div>Performance</div><div>Decoding is O(1); DB hit only in strict dependency.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: explicit token-type check, structured errors with WWW-Authenticate, minimal payload usage.</li>
+        <li class="warn">Consider validating exp automatically (jose handles), plus nbf, iat skew handling via options if needed.</li>
+        <li class="warn">Optional auth returns None for invalid tokens (not only missing). This avoids leaking auth state, but can silently treat bad tokens as anonymous; ensure endpoints using it are tolerant.</li>
+      </ul>
+
+      <h3>2) Exception Handling (exception_handler.py)</h3>
+      <div class="kvs">
+        <div>Scope</div><div>Registers handlers for KonvertItError and broad Exception. Leaves HTTPException to default processing (good).</div>
+        <div>Logging</div><div>Uses logger.error for domain errors and logger.exception for 500s. Adds error_id correlation to 500 responses.</div>
+        <div>Mapping</div><div>Maps domain exceptions to appropriate HTTP codes (404/422/400/502/503).</div>
+      </div>
+      <ul>
+        <li class="ok">Good: separation between domain and framework exceptions, correlation id for support.</li>
+        <li class="warn">Ensure PII is not in exc.message for user-facing detail. Consider adding request_id from structlog context to logs for better cross-correlation.</li>
+      </ul>
+
+      <h3>3) Logging (logging_middleware.py)</h3>
+      <div class="kvs">
+        <div>Correlation</div><div>Generates short request_id, binds via structlog.contextvars, includes X-Request-ID header. Clears context pre/post to avoid leaks.</div>
+        <div>Noise control</div><div>Skips /health, handles WebSocket upgrade bypass (BaseHTTPMiddleware limitation).</div>
+        <div>Metrics</div><div>Logs duration in ms, method, path, status, client IP.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: minimal and useful. Compatible with structured logging.</li>
+        <li class="warn">BaseHTTPMiddleware can evaluate body twice in some cases; ensure downstream handlers read body safely. Consider using ASGI middleware for zero-copy logging if profiling shows overhead.</li>
+        <li class="warn">Consider adding user id or auth subject when available (without PII) for better traceability; can be bound by router logic after auth.</li>
+      </ul>
+
+      <h3>4) Rate Limiting (rate_limiter.py)</h3>
+      <div class="kvs">
+        <div>Policy</div><div>Tier-based daily conversions; enterprise unlimited. Also tracks max_listings constant (not enforced here).</div>
+        <div>Storage</div><div>Redis with INCRBY and EXPIRE in pipeline; key namespace per user per UTC-day.</div>
+        <div>Headers</div><div>Returns X-RateLimit-* and Retry-After (on 429). Helper to inject headers.</div>
+        <div>Resilience</div><div>Fail-open on Redis errors with logging; returns unknown remaining (-1).</div>
+        <div>Observability</div><div>Warns when exceeding; pushes WS warning at ≥80% usage (best-effort, error-suppressed).</div>
+        <div>Security</div><div>Depends on get_current_user; uses user["sub"] as key. No IP-based fallback.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: atomic update with TTL; avoids double counting windows; enterprise short-circuit.</li>
+        <li class="warn">Fail-open is appropriate for UX, but consider feature flag or rate-limit shadow mode observability to detect abuse during Redis outages.</li>
+        <li class="warn">Singleton Redis client can survive across reloads in some servers; ensure shutdown hook calls close_redis().</li>
+        <li class="warn">Bulk limiter reads request.json(); on large bodies BaseHTTPMiddleware + reading JSON may increase memory; consider limiting max list size at router validation.</li>
+      </ul>
+
+      <h3>5) Security Headers (security_headers.py)</h3>
+      <div class="kvs">
+        <div>Headers</div><div>Sets X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy, CSP, optional HSTS in prod, and Cache-Control for API/health.</div>
+        <div>CSP</div><div>default-src 'none' and frame-ancestors 'none' fit an API-only backend. May block Swagger UI or embedded iframes if exposed.</div>
+        <div>Env awareness</div><div>HSTS only when settings.is_production.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: strong defaults for API services.</li>
+        <li class="warn">If serving interactive docs (Swagger/Redoc) from same app, CSP will likely block scripts/styles; consider conditional CSP relaxation for /docs and /redoc.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Actionable Recommendations</h2>
+      <ol>
+        <li>
+          Authentication:
+          <ul>
+            <li>Add issuer/audience validation to _decode_token when tokens originate from third-party IdPs. Example: pass audience and issuer via Settings and verify with jose options.</li>
+            <li>Optional auth: differentiate between missing token (None) and invalid token (log at info/warn, optionally return 401) depending on endpoint sensitivity.</li>
+            <li>Consider token replay protections if using long-lived access tokens (short access + refresh recommended).</li>
+          </ul>
+        </li>
+        <li>
+          Logging and correlation:
+          <ul>
+            <li>Bind request_id into standard logger adapter so logs outside structlog also include it (logging MDC).</li>
+            <li>Include request_id in exception handler logs by reading from structlog.contextvars (if available).</li>
+            <li>Optionally log request content length and response length for performance tuning (avoid for sensitive endpoints).</li>
+          </ul>
+        </li>
+        <li>
+          Rate limiting and resilience:
+          <ul>
+            <li>Add an application shutdown hook to invoke close_redis() to avoid descriptor leaks during reloads.</li>
+            <li>Enforce a max count for bulk URLs at pydantic schema level (e.g., 100) to prevent memory pressure.</li>
+            <li>Emit metrics (counter/gauge) for rate limit hits, near-limit warnings, and Redis errors.</li>
+            <li>Consider per-IP or per-route limits for unauthenticated endpoints, if any are exposed.</li>
+          </ul>
+        </li>
+        <li>
+          Security headers and docs:
+          <ul>
+            <li>Gate CSP to allow Swagger/Redoc only on /docs and /redoc when enabled. Otherwise keep API-only CSP.</li>
+            <li>Consider adding Cross-Origin-Resource-Policy: same-origin for API-only deployments.</li>
+          </ul>
+        </li>
+        <li>
+          Testing:
+          <ul>
+            <li>Existing tests appear to include test_auth_middleware.py, test_exception_handler.py, test_rate_limiter.py, test_security_headers.py. Ensure coverage includes Redis fail-open path and 80% WS notification branch (can mock ws_manager).</li>
+            <li>Add tests for optional auth returning None with invalid token and with wrong token type.</li>
+            <li>Test CSP behavior for /docs when enabled.</li>
+          </ul>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Configuration Assumptions</h2>
+      <ul>
+        <li>Settings.secret_key and jwt_algorithm are consistent with token issuer.</li>
+        <li>settings.redis_url points to a Redis with persistence not required for counters.</li>
+        <li>settings.is_production correctly reflects deployment stage.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Quick Reference</h2>
+      <div class="kvs">
+        <div>Rate limits</div><div>free=50/day, pro=500/day, enterprise=unlimited</div>
+        <div>Headers</div><div>X-Request-ID, X-Response-Time, X-RateLimit-*</div>
+        <div>Error mapping</div><div>KonvertItError → {400,404,422,502,503}; unhandled → 500 with error_id</div>
+      </div>
+    </section>
+
+    <div class="foot">Generated on <script>document.write(new Date().toISOString())</script> by automated review.</div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+fastapi = ">=0.115.0"
+alembic = ">=1.14.0"
+asyncpg = ">=0.30.0"
+redis = ">=5.2.0"
+arq = ">=0.26.1"
+playwright = ">=1.49.0"
+beautifulsoup4 = ">=4.12.3"
+lxml = ">=5.3.0"
+pydantic-settings = ">=2.7.0"
+httpx = ">=0.28.0"
+bcrypt = ">=4.2.0"
+cryptography = ">=44.0.0"
+python-multipart = ">=0.0.18"
+structlog = ">=24.4.0"
+gunicorn = ">=22.0.0"
+stripe = ">=11.0.0"
+uvicorn = {extras = ["standard"], version = ">=0.32.0"}
+sqlalchemy = {extras = ["asyncio"], version = ">=2.0.36"}
+pydantic = {extras = ["email"], version = ">=2.10.0"}
+python-jose = {extras = ["cryptography"], version = ">=3.3.0"}
+sentry-sdk = {extras = ["fastapi"], version = ">=2.19.0"}
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"

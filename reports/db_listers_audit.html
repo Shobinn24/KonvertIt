@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DB & Listers Audit Report</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --card:#0b1220; --muted:#94a3b8; --fg:#e2e8f0; --accent:#22d3ee; --warn:#f59e0b; --err:#ef4444; --ok:#10b981; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1220,#0f172a 35%,#0b1220);color:var(--fg);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    header{position:sticky;top:0;backdrop-filter:blur(10px);background:rgba(15,23,42,.7);border-bottom:1px solid rgba(148,163,184,.15);z-index:10}
+    .wrap{max-width:1200px;margin:0 auto;padding:18px 20px}
+    h1{margin:0;font-size:22px;letter-spacing:.3px}
+    h2{margin:28px 0 10px;font-size:18px}
+    h3{margin:18px 0 8px;font-size:15px;color:#cbd5e1}
+    section{background:rgba(17,24,39,.6);border:1px solid rgba(148,163,184,.12);border-radius:12px;padding:18px 18px 8px;margin:16px 0}
+    .meta{display:flex;gap:14px;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}}
+    .card{background:rgba(11,18,32,.65);border:1px solid rgba(148,163,184,.1);border-radius:12px;padding:14px}
+    ul{margin:8px 0 10px 20px}
+    li{margin:6px 0}
+    code,kbd{background:#0b1220;border:1px solid rgba(148,163,184,.15);padding:1px 6px;border-radius:6px;color:#cbd5e1}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(148,163,184,.2);color:#e5e7eb;font-size:11px;letter-spacing:.2px}
+    .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.accent{color:var(--accent)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#b6c3d3}
+    .foot{color:var(--muted);font-size:12px;margin-top:8px}
+    a{color:var(--accent);text-decoration:none}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Database & Listers Audit Report</h1>
+      <div class="meta">
+        <span class="tag">Scope: app/db and app/listers</span>
+        <span class="tag">Generated: <script>document.write(new Date().toISOString())</script></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>Summary</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Strengths</h3>
+          <ul>
+            <li>Clean async SQLAlchemy setup with pooled engine and slow-query instrumentation.</li>
+            <li>ORM models use SQLAlchemy 2.0 typing and timezone-aware DateTime.</li>
+            <li>Repositories implement tenant isolation patterns and focused query helpers.</li>
+            <li>Mappers bridge Pydantic domain models with ORM cleanly.</li>
+            <li>eBay lister follows official Sell Inventory API flow with robust error handling.</li>
+            <li>eBay OAuth manager encapsulates auth URL, code exchange, and refresh.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Key Risks / Gaps</h3>
+          <ul>
+            <li class="warn">Product.image_urls column type is JSON but annotated as <span class="mono">dict</span>; code writes lists. Align type hint.</li>
+            <li class="warn">Repository methods generally return all results; add hard caps or enforce upper bounds on <span class="mono">limit</span>.</li>
+            <li class="warn">Engine config assumes env-provided pool sizes; validate compatibility with target DB (e.g., Postgres vs. SQLite).</li>
+            <li class="warn">EbayLister policy/location auto-creation may have side effects in live accounts; consider feature flags or dry-run modes.</li>
+            <li class="warn">Inventory location creation uses default address; ensure this is configurable and not hardcoded.</li>
+            <li class="warn">EbayAuth scopes are broad; confirm principle of least privilege is met for listing-only operations.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Database Layer Review (app/db)</h2>
+
+      <div class="card">
+        <h3>database.py</h3>
+        <ul>
+          <li>Creates async engine from settings with pool sizing, pre-ping, recycle, and echo in dev.</li>
+          <li>Attaches slow-query logger; session dependency commits/rolls back appropriately.</li>
+          <li>Recommendation: Add engine disposal hook on application shutdown to release connections.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>models.py</h3>
+        <ul>
+          <li>Comprehensive schema: User, EbayCredential, Product, Conversion, Listing, PriceHistory, ProxyUsage.</li>
+          <li>Multi-tenant scoping via user_id and helpful composite unique index for product dedup.</li>
+          <li class="warn">Product.image_urls is declared as <span class="mono">Mapped[dict]</span> but default is <span class="mono">list</span>; should be <span class="mono">Mapped[list]</span> for consistency with usage.</li>
+          <li>Timezone-aware DateTime via timezone=True and UTC helpers; good consistency.</li>
+          <li>Recommendation: Consider ondelete behavior and cascades carefully (already present for many FKs).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>mappers.py</h3>
+        <ul>
+          <li>Maps ScrapedProduct → Product and ListingDraft/Result → Listing; sets timestamps for completed conversions and active listings.</li>
+          <li>Handles None values and converts enum values correctly.</li>
+          <li>Recommendation: Ensure currency consistency when mapping price fields; consider storing currency on Product/Listing if used.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>repositories/*</h3>
+        <ul>
+          <li>BaseRepository provides generic CRUD, count, get_all with optional user_id scoping.</li>
+          <li>ConversionRepository: user-scoped queries, status updates with converted_at set, linking listings, counts by status.</li>
+          <li>ListingRepository: find by user/status, by eBay ID, counts by status; helper for active listings.</li>
+          <li>ProductRepository: dedupe by (user, marketplace, source_id), filter by user/marketplace/brand.</li>
+          <li>PriceHistoryRepository: append-only record, range queries, stats, and latest retrieval.</li>
+          <li>Recommendation: Add result size limits and indexes alignment review based on query patterns (e.g., offers more composite indexes).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>query_logger.py</h3>
+        <ul>
+          <li>Hooks into before/after cursor execute and logs slow queries with preview and duration.</li>
+          <li>Recommendation: Include parameter bindings in debug mode (sanitized) for deeper diagnostics.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Listers Review (app/listers)</h2>
+
+      <div class="card">
+        <h3>ebay_auth.py</h3>
+        <ul>
+          <li>Generates auth URL with correct encoding (keeps :/ in scopes), exchanges codes, and refreshes tokens.</li>
+          <li>Uses Basic auth header for token endpoints; errors surface as EbayAuthError with response text in details.</li>
+          <li class="warn">Consider adding retries with backoff for transient HTTP failures and shorter timeouts with connect/read split.</li>
+          <li>Recommendation: Support sandbox vs production endpoints/scopes via configuration toggles.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>ebay_lister.py</h3>
+        <ul>
+          <li>Implements full flow: inventory item → offer → publish. Provides update, end, and price update operations.</li>
+          <li>Maps condition strings to eBay enums and strips HTML for inventory product description.</li>
+          <li>Auto-manages business policies if not configured; ensures fulfillment shipFrom and inventory location presence.</li>
+          <li class="warn">Auto-creating policies/locations can be surprising in production; introduce feature flags and explicit setup guidance.</li>
+          <li class="warn">Default inventory address is hardcoded; move to settings and validate.</li>
+          <li>Recommendation: Add idempotency or cleanup around partial failures; more granular error parsing from eBay errors array.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recommendations (Prioritized)</h2>
+      <ol>
+        <li class="warn">Align Product.image_urls typing with usage (use list in ORM annotation and migrations if needed).</li>
+        <li class="warn">Parameterize inventory location defaults (address, key) and guard policy/location auto-creation behind a feature flag.</li>
+        <li class="warn">Add bounds and safe defaults to repository list queries (limit ≤ 500) to prevent unbounded fetches.</li>
+        <li>Add engine disposal on shutdown; ensure pool sizes match DB limits in production.</li>
+        <li>Add retry/backoff to eBay OAuth/token and API requests where transient failures are common.</li>
+        <li>Expand DB indexes based on real query patterns (e.g., user_id+created_at for listings/conversions pagination).</li>
+        <li>Enhance slow query logs with sanitized parameters in development for easier optimization.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Appendix: Notable Patterns</h2>
+      <ul>
+        <li>Tenant isolation via repositories and user_id scoping is consistently applied.</li>
+        <li>Inventory API flow adheres to eBay guidelines, including offer cleansing of stale entries.</li>
+        <li>Schema uses timezone-aware timestamps for auditable events.</li>
+      </ul>
+      <p class="foot">This report summarizes a static review of app/db and app/listers as of generation time and may not reflect deployment-specific configuration.</p>
+    </section>
+  </main>
+</body>
+</html>

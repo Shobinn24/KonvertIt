@@ -116,6 +116,7 @@ class Settings(BaseSettings):
 
     # ─── CORS ────────────────────────────────────────────────
     cors_allowed_origins: str = ""  # Comma-separated origins for production
+    frontend_base_url: str = ""  # Explicit frontend URL for OAuth redirects (overrides CORS-based derivation)
 
     # ─── Playwright ───────────────────────────────────────────
     browser_pool_size: int = 3
@@ -157,6 +158,23 @@ class Settings(BaseSettings):
 
         if "change-me" in self.encryption_key:
             violations.append("ENCRYPTION_KEY must not contain 'change-me'")
+        else:
+            # Validate Fernet key format (base64-encoded 32 bytes)
+            try:
+                import base64
+                key_bytes = base64.urlsafe_b64decode(self.encryption_key.encode())
+                if len(key_bytes) != 32:
+                    violations.append(
+                        "ENCRYPTION_KEY must be a 32-byte base64-encoded Fernet key "
+                        "(generate with: python -c 'from cryptography.fernet import Fernet; "
+                        "print(Fernet.generate_key().decode())')"
+                    )
+            except Exception:
+                violations.append(
+                    "ENCRYPTION_KEY is not valid base64 "
+                    "(generate with: python -c 'from cryptography.fernet import Fernet; "
+                    "print(Fernet.generate_key().decode())')"
+                )
 
         if not self.cors_allowed_origins.strip():
             violations.append("CORS_ALLOWED_ORIGINS must be non-empty in production")

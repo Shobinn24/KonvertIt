@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KonvertIt Scrapers Audit</title>
+  <style>
+    :root{color-scheme:light dark}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;line-height:1.5;margin:0;background:#0b0c0f;color:#e6e6e6}
+    header{padding:24px 20px;border-bottom:1px solid #1e2130;background:#0f1116;position:sticky;top:0}
+    h1{margin:0;font-size:20px}
+    main{max-width:1000px;margin:0 auto;padding:28px 20px}
+    section{margin:24px 0;padding:20px;border:1px solid #1e2130;border-radius:10px;background:#0e1015}
+    h2{margin:0 0 12px 0;font-size:18px}
+    h3{margin:16px 0 8px 0;font-size:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .kvs{display:grid;grid-template-columns:220px 1fr;gap:8px 16px}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+    .ok{color:#6ad16a}
+    .warn{color:#ffd166}
+    .crit{color:#ff6b6b}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #2a2f45;background:#121521;margin-right:6px}
+    ul{margin:6px 0 6px 18px}
+    .foot{opacity:.7;font-size:12px;margin-top:24px}
+    a{color:#7ab7ff}
+    .file{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KonvertIt Scrapers Audit</h1>
+  </header>
+  <main>
+    <section>
+      <h2>Scope</h2>
+      <div class="grid">
+        <div>Reviewed files in <span class="file">app/scrapers/</span>:
+          <ul>
+            <li>base_scraper.py</li>
+            <li>browser_manager.py</li>
+            <li>proxy_manager.py</li>
+            <li>scraper_factory.py</li>
+            <li>amazon_scraper.py</li>
+            <li>walmart_scraper.py</li>
+          </ul>
+        </div>
+        <div>Objective: assess robustness, anti-bot strategies, correctness, performance, resilience, and test coverage alignment. Provide actionable improvements.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Summary</h2>
+      <ul>
+        <li class="ok">Strengths: clean template-method design; integrated CircuitBreaker + retry backoff; proxy health tracking with rotation; Playwright pool with stealth tweaks; ScraperAPI structured endpoints preferred; URL normalization; explicit bot-detection heuristics; graceful ProductNotFound/429 handling.</li>
+        <li class="warn">Medium risks: BaseHTTPMiddleware-like page waits may miss late-rendered content; structured endpoint dependency centralizes failure on ScraperAPI; proxy API key extraction from address string is brittle; direct fallback may hit bot walls quickly; no per-domain concurrency caps.</li>
+        <li class="crit">High risks: unbounded HTML size parsing could lead to excess memory usage on pathological pages; reliance on lxml/BeautifulSoup without size guard; potential misuse of ScraperAPI key if logs include full proxy address (ensure redaction upstream).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Detailed Findings</h2>
+
+      <h3>1) BaseScraper (template, resilience, validation)</h3>
+      <div class="kvs">
+        <div>Resilience</div><div>Wraps scrape in CircuitBreaker and retry_with_backoff (ScrapingError retryable). Proxy success/failure feeds health model. Browser resources released in finally.</div>
+        <div>Navigation</div><div>Supports ScraperAPI by URL wrapping; 404→ProductNotFound, 429→RateLimitError. Wait strategy via _wait_for_content (default fixed 2s).</div>
+        <div>Bot detection</div><div>Generic checks (captcha/robot/verify/access denied) and short-circuit via subclass override.</div>
+        <div>Validation</div><div>validate() uses ScrapedProduct.is_complete; raises ScrapingError if incomplete.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: resource hygiene, explicit error taxonomy, URL cleaning hook.</li>
+        <li class="warn">Consider streaming-compression awareness; page.content() returns full HTML; add max size guard.</li>
+        <li class="warn">Backoff parameters static; consider jitter and marketplace-specific policy.</li>
+      </ul>
+
+      <h3>2) BrowserManager (anti-detection, pooling)</h3>
+      <div class="kvs">
+        <div>Pool</div><div>Semaphore limits concurrent contexts to pool_size; per-call creates new context/page; releases on close; headless configurable.</div>
+        <div>Stealth</div><div>Random UA and viewport; webdriver flag removed; headers set. Proxy ignored for ScraperAPI (uses URL wrapping).</div>
+        <div>Delays</div><div>Human delay randomized between settings.scrape_min_delay and scrape_max_delay.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: per-page context reduces cross-contamination fingerprints.</li>
+        <li class="warn">Creating a new context per request is heavier; consider a small context pool if memory allows.</li>
+        <li class="warn">Missing per-domain concurrency cap and rate pacing beyond human delay.</li>
+      </ul>
+
+      <h3>3) ProxyManager (rotation, health)</h3>
+      <div class="kvs">
+        <div>Sources</div><div>Supports ScraperAPI (endpoint mode) and raw proxy list. Falls back to direct if empty or all inactive.</div>
+        <div>Health</div><div>Per-proxy success/failure with health_score; deactivates at 0; reactivate_all resets health.</div>
+        <div>Selection</div><div>Type-priority then health-sort with round-robin among active.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: simple, effective selection and deactivation strategy.</li>
+        <li class="warn">API key extraction from address uses string slicing; prefer parsing query params to avoid leakage and edge cases.</li>
+        <li class="warn">No cooldown/backoff per proxy after failures; repeated rapid retries can burn IP reputation.</li>
+      </ul>
+
+      <h3>4) AmazonScraper</h3>
+      <div class="kvs">
+        <div>Strategy</div><div>Structured endpoint preferred; fallback uses robust selectors and image upscaling; dog/CAPTCHA detection; ASIN normalization to canonical URL.</div>
+        <div>Parsing</div><div>Price regex handles various blocks; brand cleanup; bullet-to-description; image de-dup and high-res mapping.</div>
+        <div>Bot detection</div><div>Explicit Dog/CAPTCHA exceptions; very short page heuristic (<10KB).</div>
+      </div>
+      <ul>
+        <li class="ok">Good: covers common Amazon variants; guards against tracking pixels; eBay 12-image cap.</li>
+        <li class="warn">Short-page threshold may produce false positives for localized minimal pages; consider combining with HTTP status and specific DOM checks.</li>
+        <li class="warn">BeautifulSoup + lxml parse on full DOM could be heavy; add upper size limit (e.g., 3–5 MB) and early abort.</li>
+      </ul>
+
+      <h3>5) WalmartScraper</h3>
+      <div class="kvs">
+        <div>Strategy</div><div>Structured endpoint default; PerimeterX handled by provider; fallback selectors provided.</div>
+        <div>Parsing</div><div>Multiple price sources (content attr, text); image normalization; categories from breadcrumbs.</div>
+        <div>Bot detection</div><div>PerimeterX and short-page heuristics; logs warning and returns True for generic blocks.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: pragmatic anti-bot handling with provider offload.</li>
+        <li class="warn">Like Amazon, add HTML size guard and stricter fallback waits for critical selectors.</li>
+      </ul>
+
+      <h3>6) ScraperFactory</h3>
+      <div class="kvs">
+        <div>Extensibility</div><div>Static registry with default registrations; clear error if unsupported.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: simple and explicit; supports DI of managers.</li>
+        <li class="warn">If hot-reloading, ensure imports do not double-register (idempotent guard exists implicitly via dict overwrite).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Actionable Recommendations</h2>
+      <ol>
+        <li>
+          Content size and safety:
+          <ul>
+            <li>Introduce a max HTML size guard before BeautifulSoup parsing (e.g., 3–5 MB) and log/raise ScrapingError if exceeded.</li>
+            <li>Consider stripping scripts/styles before parsing to reduce memory.</li>
+          </ul>
+        </li>
+        <li>
+          ScraperAPI integration:
+          <ul>
+            <li>Parse ScraperAPI keys using urllib.parse to avoid brittle slicing; add redaction in logs.</li>
+            <li>Add circuit-breaker separation for structured endpoints vs Playwright path so correlated failures don’t trip both.</li>
+          </ul>
+        </li>
+        <li>
+          Concurrency and pacing:
+          <ul>
+            <li>Add per-domain concurrency caps and a token-bucket rate pacer to respect site limits.</li>
+            <li>Add proxy cooldown after N consecutive failures; exponential backoff per proxy to protect reputation.</li>
+          </ul>
+        </li>
+        <li>
+          Robust waits and detection:
+          <ul>
+            <li>Augment _wait_for_content in BaseScraper with marketplace-supplied selectors or a callback to wait for mission-critical elements.</li>
+            <li>Combine short-page heuristic with DOM checks (e.g., presence/absence of expected containers) to reduce false positives.</li>
+          </ul>
+        </li>
+        <li>
+          Observability:
+          <ul>
+            <li>Emit metrics: scrape_duration, success/failure counts by source, proxy success_rate histogram, captcha/dog detections, structured vs fallback ratios.</li>
+            <li>Attach request_id (from middleware) to scraper logs via contextvars if scraping happens inside request scope.</li>
+          </ul>
+        </li>
+        <li>
+          Testing:
+          <ul>
+            <li>Add unit tests for URL cleaning (Amazon/Walmart) and ID extraction edge cases.</li>
+            <li>Mock Playwright/page to test _wait_for_content timeouts and error paths.</li>
+            <li>Test ProxyManager reactivation and health decay, including direct fallback path.</li>
+            <li>Test structured endpoint error handling (404/429/5xx) and redaction of API keys in logs.</li>
+          </ul>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Configuration Assumptions</h2>
+      <ul>
+        <li>Playwright is installed and usable in the deployment environment; Chrome dependencies available.</li>
+        <li>Settings.browser_pool_size and scrape_min/max_delay tuned to throughput vs. block risk.</li>
+        <li>Proxy provider and keys are provided via env; secrets are not logged in plaintext.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Quick Reference</h2>
+      <div class="kvs">
+        <div>Sources</div><div>amazon, walmart (extensible via ScraperFactory.register)</div>
+        <div>Resilience</div><div>retry_with_backoff + CircuitBreaker; bot detection with exceptions; proxy health scoring</div>
+        <div>Structured endpoints</div><div>Amazon/Walmart via ScraperAPI preferred; Playwright fallback with BS4</div>
+      </div>
+    </section>
+
+    <div class="foot">Generated on <script>document.write(new Date().toISOString())</script> by automated review.</div>
+  </main>
+</body>
+</html>

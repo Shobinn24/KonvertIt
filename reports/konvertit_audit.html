@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KonvertIt Audit Report</title>
+  <style>
+    :root { --ok:#137333; --warn:#b06d00; --fail:#b00020; --info:#1a73e8; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin:0; color:#1f2937; background:#fafafa; }
+    header { background:#111827; color:white; padding:24px; }
+    header h1 { margin:0 0 6px 0; font-size:24px; }
+    header p { margin:0; color:#d1d5db; }
+    main { padding:24px; max-width:1100px; margin:0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr; gap:16px; }
+    @media(min-width:1000px){ .grid { grid-template-columns: 1fr 1fr; } }
+    section { background:white; border-radius:10px; border:1px solid #e5e7eb; overflow:hidden; }
+    section header { background:#f3f4f6; color:#111827; padding:12px 16px; border-bottom:1px solid #e5e7eb; }
+    section header h2 { margin:0; font-size:18px; }
+    .content { padding:16px; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:9999px; font-size:12px; font-weight:600; letter-spacing:.2px; }
+    .sev-high { background: #fee2e2; color: var(--fail); border:1px solid #fecaca; }
+    .sev-med { background: #fff7ed; color: var(--warn); border:1px solid #ffedd5; }
+    .sev-low { background: #ecfeff; color: #0b7285; border:1px solid #cffafe; }
+    .sev-info { background: #eef2ff; color: var(--info); border:1px solid #e0e7ff; }
+    .item { border-top:1px dashed #e5e7eb; padding-top:12px; margin-top:12px; }
+    .item:first-child { border-top:0; padding-top:0; margin-top:0; }
+    .item h3 { margin:0 0 4px 0; font-size:16px; }
+    .meta { color:#6b7280; font-size:12px; margin-bottom:8px; }
+    ul { margin:6px 0 0 18px; }
+    code { background:#f3f4f6; padding:2px 6px; border-radius:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; }
+    footer { padding:24px; text-align:center; color:#6b7280; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KonvertIt Audit Report</h1>
+    <p>Generated analysis of key areas with prioritized, actionable recommendations</p>
+  </header>
+  <main>
+    <section>
+      <header><h2>Executive Summary</h2></header>
+      <div class="content">
+        <p>The codebase presents a clean FastAPI architecture with layered services, repositories, middleware, structured logging, Sentry hooks, Alembic migrations, and a Vite/React/Tailwind frontend. Dockerized dev/prod flows are present. The test suite is extensive. Overall readiness is high with specific gaps in secrets handling defaults, dependency management consistency, and a few production hardening areas.</p>
+        <p><strong>Top 5 immediate actions:</strong></p>
+        <ul>
+          <li>Harden secrets and environment defaults (SECRET_KEY, ENCRYPTION_KEY, APP_DEBUG) and enforce at startup in production.</li>
+          <li>Unify Python dependency management (pyproject vs requirements) and enable reproducible lockfiles in CI/CD.</li>
+          <li>Pin and cache Playwright/browser installation in containers for faster, reproducible builds.</li>
+          <li>Add a minimal CI workflow to run lint/tests/build; ensure coverage threshold enforced.</li>
+          <li>Validate CORS origins and security headers for production, including CSP expansion when docs UI is disabled.</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section>
+        <header>
+          <h2>Architecture & Composition</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Clear app factory and lifespan management</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/main.py</div>
+            <ul>
+              <li>Uses create_app with ordered middleware and async lifespan; Redis shutdown handled via close_redis().</li>
+              <li>OpenAPI tags and conditional docs exposure are well structured.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Add graceful shutdown hooks for other async resources (e.g., Playwright browser pool) if managed globally.</p>
+          </div>
+          <div class="item">
+            <h3>Settings normalization and derived properties</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/config.py</div>
+            <ul>
+              <li>Normalizes DATABASE_URL to asyncpg; helpful for PaaS environments.</li>
+              <li>Provides computed URLs and environment flags.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Add pydantic validators for minimal secret length/format and raise ValueError when <code>is_production</code> and insecure defaults are detected (see Security).</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Security</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Secrets and prod safety checks</h3>
+            <div class="meta"><span class="badge sev-high">High</span> app/config.py defaults</div>
+            <ul>
+              <li><code>secret_key</code> and <code>encryption_key</code> have placeholder defaults.</li>
+              <li><code>app_debug</code> default false, but no hard fail when prod values are insecure.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> In <code>Settings</code> post-init, when <code>is_production</code>, enforce: <code>app_debug == False</code>, <code>len(secret_key) &gt;= 32</code>, <code>encryption_key</code> not placeholder, and require <code>cors_allowed_origins</code> non-empty. Raise on violation to prevent boot.</p>
+          </div>
+          <div class="item">
+            <h3>Security headers coverage</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/middleware/security_headers.py</div>
+            <ul>
+              <li>Strong defaults: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, basic CSP, Permissions-Policy.</li>
+              <li>HSTS gated to production.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Expand CSP for API-only surface (e.g., <code>default-src 'none'; frame-ancestors 'none'</code>) if no HTML is served; ensure WebSocket endpoints are compatible. Consider nonce/strict-dynamic if serving any HTML in future.</p>
+          </div>
+          <div class="item">
+            <h3>Auth/JWT configuration defaults</h3>
+            <div class="meta"><span class="badge sev-med">Medium</span> app/config.py</div>
+            <ul>
+              <li>JWT alg/expirations sensible. Ensure rotation/blacklist of refresh tokens is implemented (not in scanned scope).</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Document rotation strategy and add unit tests for token expiry/refresh, and tier-based access checks.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Reliability & Observability</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Structured logging via structlog</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/core/logging_config.py</div>
+            <ul>
+              <li>Auto JSON for non-dev, quiets noisy loggers, integrates with stdlib.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Add request-id correlation (propagate trace-id in contextvars from middleware), and bind user/tier where appropriate on authenticated routes.</p>
+          </div>
+          <div class="item">
+            <h3>Health checks with dependency probes</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/core/health.py</div>
+            <ul>
+              <li>Concurrent probes for DB/Redis return degraded vs healthy; avoids 503, which is good for LBs.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Emit latency metrics to logs; optionally expose Prometheus metrics for probe timings.</p>
+          </div>
+          <div class="item">
+            <h3>Sentry initialization early</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/main.py</div>
+            <ul>
+              <li>Initialized before app creation to hook ASGI; good placement.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Gate by DSN presence, and add environment-based sampling config overrides for high-traffic endpoints.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Performance</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>GZip and rate limiting middleware present</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> app/main.py</div>
+            <ul>
+              <li>GZip minimum size configurable; CORS last (outermost) is correct.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Consider brotli if serving large JSON. Verify rate limiter Redis ops are pipelined and resilient to Redis downtime (fail-open vs fail-closed policy documented).</p>
+          </div>
+          <div class="item">
+            <h3>DB pool configuration</h3>
+            <div class="meta"><span class="badge sev-med">Medium</span> app/config.py</div>
+            <ul>
+              <li>Pool size/overflow/recycle tuned; ensure alignment with Gunicorn worker concurrency.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> In production, set pool sizes per worker and cap workers based on DB connections. Add slow-query logging using <code>query_slow_threshold_ms</code>.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Containerization & Deploy</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Dev docker-compose and prod multi-stage</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> docker/</div>
+            <ul>
+              <li>Separate dev/prod Dockerfiles; healthchecks; non-root user in prod.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Cache wheels layer: move <code>pip install</code> behind <code>pyproject.toml</code> or lockfile and copy only those first. Pin Playwright chromium version and cache <code>PLAYWRIGHT_BROWSERS_PATH</code> as its own layer to speed CI.</p>
+          </div>
+          <div class="item">
+            <h3>Gunicorn configuration sanity</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> gunicorn.conf.py</div>
+            <ul>
+              <li>UvicornWorker; workers capped by env; timeouts increased for scraping.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Set explicit <code>WEB_CONCURRENCY</code> in deploy and align with DB/Redis capacities. Consider <code>graceful_timeout</code> tuned to scraper teardown time.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Dependencies & Tooling</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Dual dependency manifests</h3>
+            <div class="meta"><span class="badge sev-med">Medium</span> pyproject.toml vs requirements.txt</div>
+            <ul>
+              <li>Both files exist; the Dockerfiles install via requirements.txt; tests/config use pyproject for tools.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Choose a single source of truth. Options:
+              <ul>
+                <li>Use <code>pip-tools</code> to compile locked requirements from <code>pyproject</code>, commit <code>requirements.txt</code>, and document update flow.</li>
+                <li>Or adopt Poetry/uv and rely solely on <code>pyproject.lock</code> in CI and Docker.</li>
+              </ul>
+            </p>
+          </div>
+          <div class="item">
+            <h3>Static analysis and coverage</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> pyproject tools</div>
+            <ul>
+              <li>Ruff configured; coverage thresholds defined; pytest config present.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Add mypy with strict-ish config for core modules; add Bandit/Safety to CI. Ensure <code>ruff format</code> and <code>ruff check</code> run in CI.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Frontend</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Vite/React/Tailwind setup</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> frontend/package.json</div>
+            <ul>
+              <li>Scripts for dev/build/preview/lint; modern dependencies pinned by range.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Pin exact versions via lockfile and enable CI build. Validate <code>vite.config.ts</code> base/publicDir for production paths; confirm Tailwind content globs include all TS/TSX.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Testing</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Extensive pytest suite</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> tests/</div>
+            <ul>
+              <li>Unit/integration/e2e present; async mode auto; security headers thoroughly validated.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Add smoke tests for critical conversions and eBay lister flows behind feature flags/mocking. Introduce test matrix in CI for Python 3.12 and 3.13 (if planned).</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <header>
+          <h2>Configuration & Environment</h2>
+        </header>
+        <div class="content">
+          <div class="item">
+            <h3>Prelaunch checklist script</h3>
+            <div class="meta"><span class="badge sev-low">Low</span> scripts/prelaunch_check.py</div>
+            <ul>
+              <li>Validates presence of docs/configs, versions alignment, env sanity, migrations, tests, CI workflow.</li>
+            </ul>
+            <p><strong>Recommendation:</strong> Extend to verify <code>pyproject</code> and <code>requirements.txt</code> sync; enforce non-empty <code>CORS_ALLOWED_ORIGINS</code> for prod; fail on <code>APP_DEBUG</code> true; add optional check for <code>.github/workflows/ci.yml</code> contents.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section>
+      <header><h2>Prioritized Action Plan</h2></header>
+      <div class="content">
+        <ol>
+          <li><strong>Enforce production safety in Settings</strong> (fail fast on bad secrets, debug mode, empty CORS).</li>
+          <li><strong>Unify dependencies</strong> and create a reproducible lock and CI step to verify integrity.</li>
+          <li><strong>Optimize Docker images</strong> (cache deps, pin Playwright, non-root verified; add <code>--no-cache-dir</code> everywhere).</li>
+          <li><strong>Introduce minimal CI</strong> (lint, test with coverage, build backend image, build frontend).</li>
+          <li><strong>Expand CSP</strong> for API-only deployment to reduce attack surface.</li>
+          <li><strong>Observability</strong>: add request-id correlation and bind user/tier to logs; consider metrics endpoint.</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+  <footer>
+    Generated automatically — tailor actions to your deployment targets.
+  </footer>
+</body>
+</html>

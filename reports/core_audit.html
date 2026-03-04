@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Core Module Audit Report</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --card:#0b1220; --muted:#94a3b8; --fg:#e2e8f0; --accent:#22d3ee; --warn:#f59e0b; --err:#ef4444; --ok:#10b981; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1220,#0f172a 35%,#0b1220);color:var(--fg);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    header{position:sticky;top:0;backdrop-filter:blur(10px);background:rgba(15,23,42,.7);border-bottom:1px solid rgba(148,163,184,.15);z-index:10}
+    .wrap{max-width:1100px;margin:0 auto;padding:18px 20px}
+    h1{margin:0;font-size:22px;letter-spacing:.3px}
+    h2{margin:28px 0 10px;font-size:18px}
+    h3{margin:18px 0 8px;font-size:15px;color:#cbd5e1}
+    section{background:rgba(17,24,39,.6);border:1px solid rgba(148,163,184,.12);border-radius:12px;padding:18px 18px 8px;margin:16px 0}
+    .meta{display:flex;gap:14px;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+    .card{background:rgba(11,18,32,.65);border:1px solid rgba(148,163,184,.1);border-radius:12px;padding:14px}
+    ul{margin:8px 0 10px 20px}
+    li{margin:6px 0}
+    code,kbd{background:#0b1220;border:1px solid rgba(148,163,184,.15);padding:1px 6px;border-radius:6px;color:#cbd5e1}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(148,163,184,.2);color:#e5e7eb;font-size:11px;letter-spacing:.2px}
+    .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.accent{color:var(--accent)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#b6c3d3}
+    .foot{color:var(--muted);font-size:12px;margin-top:8px}
+    a{color:var(--accent);text-decoration:none}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Core Module Audit Report</h1>
+      <div class="meta">
+        <span class="tag">Scope: app/core</span>
+        <span class="tag">Generated: <script>document.write(new Date().toISOString())</script></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>Summary</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Strengths</h3>
+          <ul>
+            <li>Clear domain modeling with Pydantic and well-scoped enums for marketplaces, statuses, tiers, and risk levels.</li>
+            <li>Consistent custom exception hierarchy enabling clean error handling and Sentry tagging.</li>
+            <li>Structured logging via structlog with environment-aware JSON/console rendering.</li>
+            <li>Practical resilience patterns: circuit breaker and async retry with backoff+jitter.</li>
+            <li>Health checks concurrently probe DB and Redis with latency metrics and non-disruptive 200 responses.</li>
+            <li>Encryption uses Fernet with lazy initialization and backward-compatibility for legacy plaintext.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Key Risks / Gaps</h3>
+          <ul>
+            <li class="warn">Fernet key validity assumed; lack of startup validation can defer failures to runtime.</li>
+            <li class="warn">Health check always returns 200 (by design); ensure external monitors consider body status.</li>
+            <li class="warn">Retry decorator defaults to retrying on <span class="mono">Exception</span>; risk of masking programmer errors.</li>
+            <li class="warn">Models: <span class="mono">ScrapedProduct.scraped_at</span> uses naive datetime; consider timezone-aware.</li>
+            <li class="warn">Circuit breaker window/threshold may not be thread-safe if accessed across tasks (single instance expected).</li>
+            <li class="warn">Sentry dropping 4xx is good; verify rate limits/429 from upstream are not lost if needed for observability.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Module Reviews</h2>
+
+      <div class="card">
+        <h3>encryption.py</h3>
+        <ul>
+          <li>Fernet-based symmetric encryption with lazy cipher init from settings.</li>
+          <li>Graceful fallback on <span class="mono">InvalidToken</span> to return raw value (supports legacy plaintext tokens).</li>
+          <li class="warn">Add startup validation to ensure <span class="mono">settings.encryption_key</span> is a valid Fernet key to fail-fast.</li>
+          <li>Consider key rotation strategy (versioned keys) if secrets policy requires it.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>exceptions.py</h3>
+        <ul>
+          <li>Hierarchical exceptions grouped by domain (Scraping, Conversion, Listing, Resilience).</li>
+          <li><span class="mono">ComplianceViolationError</span> enriches message and stores metadata.</li>
+          <li>Works well with Sentry filter to tag <span class="mono">KonvertItError</span> subclasses.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>health.py</h3>
+        <ul>
+          <li>Asynchronous DB and Redis probes with latency metrics and warning logs on failure.</li>
+          <li>Overall status is <span class="mono">healthy</span> when all probes up, otherwise <span class="mono">degraded</span>.</li>
+          <li class="warn">Returns 200 regardless; ensure load balancer logic relies on body content if needed.</li>
+          <li>Recommendation: Add optional probe for external dependencies (e.g., Stripe reachability) via head checks with timeouts.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>interfaces.py</h3>
+        <ul>
+          <li>Defines core ABCs: <span class="mono">IScrapeable</span>, <span class="mono">IConvertable</span>, <span class="mono">IListable</span>, <span class="mono">IPriceable</span>, <span class="mono">IComplianceCheckable</span>.</li>
+          <li>Methods documented with expected errors and contracts; promotes loose coupling and testability.</li>
+          <li>Recommendation: Consider Protocols (typing.Protocol) where structural typing is useful for simpler mocking.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>logging_config.py</h3>
+        <ul>
+          <li>Configures structlog with shared processors and chooses JSON vs console based on env/flag.</li>
+          <li>Attaches ProcessorFormatter to root handler so stdlib logging is structured.</li>
+          <li>Quiets noisy loggers (uvicorn.access, sqlalchemy.engine, httpx) to WARNING.</li>
+          <li>Recommendation: Mask secrets in logs (e.g., tokens) via a custom processor if any may leak from upstream middlewares.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>models.py</h3>
+        <ul>
+          <li>Defines source/target marketplaces, statuses, tiers, and domain models for pipeline and business logic.</li>
+          <li>Validation constraints: title lengths, price bounds, images max length (12), etc.</li>
+          <li class="warn">Datetime fields (e.g., <span class="mono">scraped_at</span>, <span class="mono">created_at</span>) are naive; consider timezone-aware (UTC) or consistent serialization policy.</li>
+          <li>Suggestion: Provide <span class="mono">model_config</span> (pydantic v2) to control json_encoders/timezone, and forbid_extra to harden inputs if used for request parsing.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>resilience.py</h3>
+        <ul>
+          <li>Implements CircuitBreaker with CLOSED/OPEN/HALF_OPEN and cooldown logic; async context manager pattern is ergonomic.</li>
+          <li>Retry decorator with exponential backoff and jitter; logs failures and delays.</li>
+          <li class="warn">Default retryable_exceptions=(Exception,) risks retrying on programmer errors; recommend narrowing to I/O classes.</li>
+          <li>Recommendation: Expose hooks/metrics for breaker state changes and retry attempts (Prometheus counters).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>sentry_config.py</h3>
+        <ul>
+          <li>Initializes Sentry with FastAPI/Starlette/asyncio/logging integrations; configurable tracing rates.</li>
+          <li>before_send filter drops 4xx HTTPExceptions and tags <span class="mono">KonvertItError</span> types; avoids PII.</li>
+          <li>Recommendation: Add environment-based sampling (higher in staging, lower in prod) and denylist paths (e.g., health) if noisy.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recommendations (Prioritized)</h2>
+      <ol>
+        <li class="warn">Validate encryption key at startup (fail-fast) and consider key rotation support.</li>
+        <li class="warn">Tighten retryable exceptions to network/HTTP/timeout classes to avoid retrying on logic errors.</li>
+        <li class="warn">Adopt timezone-aware datetimes (UTC) in models, or enforce consistent serialization via config.</li>
+        <li>Expose breaker and retry metrics; optionally add per-source configs for thresholds and cooldowns.</li>
+        <li>Allow health endpoint to optionally return 503 in <em>readiness</em> mode (separate from liveness) if dependencies are down.</li>
+        <li>Add a logging processor to scrub secrets/tokens from messages and contexts.</li>
+        <li>Consider Protocols for interfaces to ease testing and reduce ABC boilerplate for simple adapters.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Appendix: Notable Patterns</h2>
+      <ul>
+        <li>Clean separation of concerns across error handling, logging, resilience, and domain modeling.</li>
+        <li>Non-intrusive health model: never 503, encourages downstream to inspect body status for degradation.</li>
+        <li>Resilience components are composable and side-effect aware via async contexts and decorators.</li>
+      </ul>
+      <p class="foot">This report summarizes a static review of app/core as of generation time and may not reflect runtime configuration or deployment topology.</p>
+    </section>
+  </main>
+</body>
+</html>

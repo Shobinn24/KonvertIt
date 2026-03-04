@@ -15,6 +15,8 @@ from app.db.models import Base
 
 ModelType = TypeVar("ModelType", bound=Base)
 
+MAX_QUERY_LIMIT = 500  # Hard cap to prevent unbounded fetches
+
 
 class BaseRepository(Generic[ModelType]):
     """
@@ -46,6 +48,7 @@ class BaseRepository(Generic[ModelType]):
             limit: Maximum number of records to return.
             offset: Number of records to skip.
         """
+        limit = min(limit, MAX_QUERY_LIMIT)
         stmt = select(self.model)
         if user_id is not None and hasattr(self.model, "user_id"):
             stmt = stmt.where(self.model.user_id == user_id)

@@ -4,6 +4,7 @@ Stripe billing service — manages customers, checkout sessions, and subscriptio
 Encapsulates all Stripe SDK interactions so the API layer stays thin.
 """
 
+import asyncio
 import logging
 import uuid
 
@@ -77,8 +78,9 @@ class BillingService:
         if user.stripe_customer_id:
             return user.stripe_customer_id
 
-        # Create Stripe customer
-        customer = stripe.Customer.create(
+        # Create Stripe customer (sync SDK call → run in thread to avoid blocking event loop)
+        customer = await asyncio.to_thread(
+            stripe.Customer.create,
             email=email,
             metadata={"konvertit_user_id": str(user_id)},
         )
@@ -114,7 +116,8 @@ class BillingService:
         price_id = self._price_id_for_tier(tier)
         customer_id = await self.get_or_create_customer(user_id, email)
 
-        session = stripe.checkout.Session.create(
+        session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
             customer=customer_id,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
@@ -148,7 +151,8 @@ class BillingService:
         if not user.stripe_customer_id:
             raise BillingError("No Stripe customer found — subscribe first")
 
-        session = stripe.billing_portal.Session.create(
+        session = await asyncio.to_thread(
+            stripe.billing_portal.Session.create,
             customer=user.stripe_customer_id,
             return_url=return_url,
         )
@@ -178,7 +182,9 @@ class BillingService:
             }
 
         try:
-            subscription = stripe.Subscription.retrieve(user.stripe_subscription_id)
+            subscription = await asyncio.to_thread(
+                stripe.Subscription.retrieve, user.stripe_subscription_id
+            )
             return {
                 "tier": user.tier,
                 "status": subscription.get("status", "unknown"),

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KonvertIt Services & Tasks Audit</title>
+  <style>
+    :root{color-scheme:light dark}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;line-height:1.5;margin:0;background:#0b0c0f;color:#e6e6e6}
+    header{padding:24px 20px;border-bottom:1px solid #1e2130;background:#0f1116;position:sticky;top:0}
+    h1{margin:0;font-size:20px}
+    main{max-width:1100px;margin:0 auto;padding:28px 20px}
+    section{margin:24px 0;padding:20px;border:1px solid #1e2130;border-radius:10px;background:#0e1015}
+    h2{margin:0 0 12px 0;font-size:18px}
+    h3{margin:16px 0 8px 0;font-size:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .kvs{display:grid;grid-template-columns:240px 1fr;gap:8px 16px}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+    .ok{color:#6ad16a}
+    .warn{color:#ffd166}
+    .crit{color:#ff6b6b}
+    ul{margin:6px 0 6px 18px}
+    .file{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .foot{opacity:.7;font-size:12px;margin-top:24px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KonvertIt Services & Tasks Audit</h1>
+  </header>
+  <main>
+    <section>
+      <h2>Scope</h2>
+      <div class="grid">
+        <div>Reviewed files in <span class="file">app/services/</span> and <span class="file">app/tasks/</span>:
+          <ul>
+            <li>services: billing_service, cache_service, compliance_service, conversion_service, discovery_service, price_monitor_service, profit_engine, sse_manager, user_service, ws_manager</li>
+            <li>tasks: task_queue, scrape_tasks, monitor_tasks, notification_tasks</li>
+          </ul>
+        </div>
+        <div>Objective: evaluate architecture, reliability, performance, security, observability, and background processing patterns; provide actionable recommendations.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Summary</h2>
+      <ul>
+        <li class="ok">Strengths: clear service boundaries; strong error taxonomy; Stripe encapsulation; Redis cache fail-open; SSE + WS separation; conversion pipeline with callbacks; price monitoring with DB repos; structured search via ScraperAPI; DI-friendly factories/managers.</li>
+        <li class="warn">Medium risks: Stripe usage synchronous in async context; missing idempotency/verification on webhooks; potential resource leaks in long-lived workers; background tasks use in-memory singletons (non-multiworker-safe); rate pacing/limits not enforced for tasks.</li>
+        <li class="crit">High risks: None critical in code review. Ensure secrets/keys are handled via config and not logged.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Detailed Findings</h2>
+
+      <h3>BillingService</h3>
+      <div class="kvs">
+        <div>Scope</div><div>Customer creation, checkout/portal sessions, subscription status, Stripe webhook handlers (session completed, subscription updated/deleted, payment failed).</div>
+        <div>Errors</div><div>Custom BillingError; logs and maps Stripe exceptions; handles missing/invalid data.</div>
+        <div>Security</div><div>Relies on Settings for price IDs; no direct key leakage. Webhooks lack signature verification here (assumed handled at API layer).</div>
+        <div>Async</div><div>Uses stripe.* synchronous calls in async service methods → potential event-loop blocking.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: idempotent updates, tier mapping helpers, safe fallbacks.</li>
+        <li class="warn">Wrap Stripe SDK calls in run_in_executor or use an async-capable client to avoid blocking.</li>
+        <li class="warn">Add webhook signature verification and idempotency keys if not already at endpoint level.</li>
+      </ul>
+
+      <h3>CacheService</h3>
+      <div class="kvs">
+        <div>Behavior</div><div>Async Redis client with JSON serialization; fail-open on errors; namespace support; SCAN-based invalidation.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: resilient, safe defaults, TTL handling.</li>
+        <li class="warn">Consider compression for large payloads and metrics for hit/miss/error rates.</li>
+      </ul>
+
+      <h3>ComplianceService</h3>
+      <div class="kvs">
+        <div>Features</div><div>Loads VeRO brands; exact+fuzzy brand checks; restricted keyword scan; risk levels and violations.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: clear risk model; robust fallback on file errors.</li>
+        <li class="warn">Fuzzy threshold static; consider config-driven and caching for hot brands.</li>
+      </ul>
+
+      <h3>ConversionService</h3>
+      <div class="kvs">
+        <div>Pipeline</div><div>scrape → compliance → convert → price → list; step callbacks; error taxonomy mapping; bulk with cancel check and item callbacks.</div>
+        <div>Pricing</div><div>ProfitEngine used for suggest_price and breakdown; draft-only mode supported.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: strong orchestration with telemetry-friendly callbacks.</li>
+        <li class="warn">Serial bulk conversion; consider bounded concurrency with rate-limits per marketplace.</li>
+        <li class="warn">Surface more structured error data in result.error for frontend decisions.</li>
+      </ul>
+
+      <h3>DiscoveryService</h3>
+      <div class="kvs">
+        <div>Endpoints</div><div>ScraperAPI structured search for Amazon/Walmart; URL normalization for Amazon; pagination handling.</div>
+        <div>Errors</div><div>429 → RuntimeError; others via raise_for_status; skips ad URLs with logging.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: pragmatic normalization and robustness.</li>
+        <li class="warn">Add timeouts/jitter retry for transient 5xx; emit metrics for skipped items.</li>
+      </ul>
+
+      <h3>PriceMonitorService</h3>
+      <div class="kvs">
+        <div>Workflow</div><div>Scrapes current price for products with active listings; records history; updates product price; WS alert on change.</div>
+        <div>Errors</div><div>Per-product try/catch; records error in result.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: repository usage and WS notification.</li>
+        <li class="warn">Currently iterates products for users with active listings via user-wide product fetch; consider narrowing to products tied to active listings only to reduce load.</li>
+        <li class="warn">Add rate pacing and backoff for scrapes during sweeps; track sweep metrics.</li>
+      </ul>
+
+      <h3>ProfitEngine</h3>
+      <div class="kvs">
+        <div>Fees</div><div>Category-based fee table; payment fee and shipping; break-even and suggest price.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: explicit fee modeling and safe fallbacks.</li>
+        <li class="warn">Consider making fee tables configurable and updatable without code deploy.</li>
+      </ul>
+
+      <h3>SSEProgressManager</h3>
+      <div class="kvs">
+        <div>Model</div><div>In-memory job state and queues; heartbeat; formatted SSE events; cancel and cleanup helpers.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: clear event model and backpressure via queue.</li>
+        <li class="warn">In-memory store is single-process only; document limitation or add Redis-backed option for multi-worker scale.</li>
+      </ul>
+
+      <h3>WebSocketManager</h3>
+      <div class="kvs">
+        <div>Connections</div><div>Per-user connection lists; tier-based limits; broadcast; pruning on failure; singleton accessor.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: straightforward and testable.</li>
+        <li class="warn">Memory-only; add GC for idle connections and metrics (total, per-user) for observability.</li>
+      </ul>
+
+      <h3>Task Queue (arq)</h3>
+      <div class="kvs">
+        <div>Config</div><div>RedisSettings parsed from URL; worker settings include functions and startup/shutdown hooks; max_jobs=10, timeout=300s.</div>
+        <div>Infra</div><div>scrape_tasks maintains singleton Proxy/Browser managers and starts browser on startup; monitor_tasks schedules sweeps using DB session factory.</div>
+      </div>
+      <ul>
+        <li class="ok">Good: resource reuse across tasks; graceful shutdown closes browser.</li>
+        <li class="warn">Redis URL parsing is minimal (no auth/ssl); consider using redis.from_url parsing or environment-specific overrides.</li>
+        <li class="warn">Long-lived Playwright contexts can leak on crashes; add liveness checks/restart strategy.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Actionable Recommendations</h2>
+      <ol>
+        <li>
+          Async/IO correctness:
+          <ul>
+            <li>Wrap Stripe SDK calls in an executor to avoid blocking the event loop or move to a sync worker context.</li>
+            <li>Add retries with backoff to DiscoveryService httpx requests for transient network/5xx errors.</li>
+          </ul>
+        </li>
+        <li>
+          Webhooks and idempotency:
+          <ul>
+            <li>Verify Stripe webhook signatures and enforce idempotency at the endpoint; ensure BillingService handlers remain idempotent.</li>
+            <li>Record processed event IDs to avoid duplicate processing on retries.</li>
+          </ul>
+        </li>
+        <li>
+          Background processing and resources:
+          <ul>
+            <li>Add health checks and periodic restarts for BrowserManager in workers; guard against zombie Playwright processes.</li>
+            <li>Bound concurrency in bulk conversions and monitor sweeps; add pacing tokens per marketplace.</li>
+          </ul>
+        </li>
+        <li>
+          Data access efficiency:
+          <ul>
+            <li>In PriceMonitorService.check_all_for_user, join/filter to products behind active listings instead of fetching all user products.</li>
+            <li>Add pagination/batching for large product sets.</li>
+          </ul>
+        </li>
+        <li>
+          Observability:
+          <ul>
+            <li>Add metrics: conversion steps, success/failure by cause, Stripe API timings/errors, cache hit/miss, SSE queue sizes, WS connection counts.</li>
+            <li>Propagate request_id into services when called in request scope.</li>
+          </ul>
+        </li>
+        <li>
+          Configuration and security:
+          <ul>
+            <li>Externalize fee tables and compliance keyword lists to config or DB for runtime updates.</li>
+            <li>Harden Redis URL parsing (support redis://:password@host:port/db and rediss:// TLS).</li>
+          </ul>
+        </li>
+        <li>
+          Testing:
+          <ul>
+            <li>Unit tests for BillingService handlers (updated/deleted) including tier mapping and idempotency.</li>
+            <li>Integration tests for ConversionService bulk with cancel and callbacks.</li>
+            <li>Load tests for SSE stream stability with heartbeats.</li>
+            <li>Tests for PriceMonitorService narrow queries and WS notification payloads.</li>
+          </ul>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Configuration Assumptions</h2>
+      <ul>
+        <li>Stripe keys and price IDs configured in Settings; webhooks routed to handlers with signature verification.</li>
+        <li>Redis accessible for cache and arq; Playwright dependencies installed on workers.</li>
+        <li>Single-process SSE/WS use acceptable for current deployment; plan for Redis pub/sub if scaling horizontally.</li>
+      </ul>
+    </section>
+
+    <div class="foot">Generated on <script>document.write(new Date().toISOString())</script> by automated review.</div>
+  </main>
+</body>
+</html>

@@ -34,19 +34,42 @@ class EbayConverter(BaseConverter):
         """Convert a scraped product to an eBay listing draft."""
         title = self.optimize_title(product.title)
         description = self.build_description(product)
-        sku = f"KI-{product.source_product_id}"
+
+        # Namespace SKU by marketplace to prevent collisions across sources
+        marketplace_prefix = product.source_marketplace.value.upper()[:2]
+        sku = f"KI-{marketplace_prefix}-{product.source_product_id}"
 
         return ListingDraft(
             title=title,
             description_html=description,
             price=product.price,  # Will be overridden by profit engine
             images=product.images[:12],
-            condition="New",
+            condition=self._detect_condition(product),
             sku=sku,
             target_marketplace=TargetMarketplace.EBAY,
             source_product_id=product.source_product_id,
             source_marketplace=product.source_marketplace,
         )
+
+    def _detect_condition(self, product: ScrapedProduct) -> str:
+        """Detect product condition from raw data and title keywords.
+
+        Falls back to "New" when no condition signal is found.
+        The EbayLister._map_condition() further normalizes to eBay enum values.
+        """
+        # Check raw_data for explicit condition field (structured API may include it)
+        raw_condition = product.raw_data.get("condition", "")
+        if raw_condition:
+            return raw_condition
+
+        # Check title for condition keywords
+        title_lower = product.title.lower()
+        if "renewed" in title_lower or "refurbished" in title_lower:
+            return "Refurbished"
+        if "used" in title_lower or "pre-owned" in title_lower:
+            return "Good"
+
+        return "New"
 
     def optimize_title(self, title: str, max_length: int = 80) -> str:
         """Optimize title for eBay's 80-character limit."""

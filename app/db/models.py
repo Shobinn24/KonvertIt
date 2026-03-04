@@ -152,7 +152,7 @@ class Product(Base):
     price: Mapped[float] = mapped_column(Float, nullable=False)
     brand: Mapped[str] = mapped_column(Unicode(200), default="", nullable=False)
     category: Mapped[str] = mapped_column(Unicode(500), default="", nullable=False)
-    image_urls: Mapped[dict] = mapped_column(JSON, default=list, nullable=False)
+    image_urls: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     raw_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     scraped_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

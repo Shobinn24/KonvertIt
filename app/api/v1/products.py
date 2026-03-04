@@ -16,13 +16,11 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.conversions import _conversion_service_context
 from app.core.exceptions import KonvertItError, ScrapingError
 from app.db.database import get_db
 from app.db.repositories.product_repo import ProductRepository
 from app.middleware.auth_middleware import get_current_user
-from app.scrapers.browser_manager import BrowserManager
-from app.scrapers.proxy_manager import ProxyManager
-from app.services.conversion_service import ConversionService
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -69,22 +67,19 @@ async def scrape_product(
     user_id = user["sub"]
 
     try:
-        service = ConversionService(
-            proxy_manager=ProxyManager(),
-            browser_manager=BrowserManager(),
-        )
-        result = await service.preview_conversion(
-            url=request.url,
-            user_id=user_id,
-        )
-
-        if result.is_successful:
-            return result.to_dict()
-        else:
-            raise HTTPException(
-                status_code=422,
-                detail=result.error or "Failed to scrape product",
+        async with _conversion_service_context() as service:
+            result = await service.preview_conversion(
+                url=request.url,
+                user_id=user_id,
             )
+
+            if result.is_successful:
+                return result.to_dict()
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=result.error or "Failed to scrape product",
+                )
 
     except ScrapingError as e:
         raise HTTPException(status_code=422, detail=str(e))

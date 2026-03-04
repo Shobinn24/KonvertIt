@@ -5,7 +5,7 @@ These models represent the data flowing through the conversion pipeline:
 ScrapedProduct → ListingDraft → ListingResult
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -71,7 +71,7 @@ class ScrapedProduct(BaseModel):
     source_url: str
     source_product_id: str = Field(..., min_length=1)
     raw_data: dict[str, Any] = Field(default_factory=dict)
-    scraped_at: datetime = Field(default_factory=lambda: datetime.now())
+    scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def has_images(self) -> bool:
@@ -108,7 +108,7 @@ class ListingResult(BaseModel):
     url: str = Field(default="")
     fees_estimate: float = Field(default=0.0)
     error_message: str = Field(default="")
-    created_at: datetime = Field(default_factory=lambda: datetime.now())
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ─── Business Logic Models ────────────────────────────────────
@@ -141,7 +141,7 @@ class ComplianceResult(BaseModel):
     violations: list[str] = Field(default_factory=list, description="List of violation reasons")
     brand: str = Field(default="", description="The brand that was checked")
     risk_level: RiskLevel = Field(default=RiskLevel.CLEAR, description="Overall risk assessment")
-    checked_at: datetime = Field(default_factory=lambda: datetime.now())
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def has_violations(self) -> bool:

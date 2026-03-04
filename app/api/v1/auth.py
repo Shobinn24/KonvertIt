@@ -25,6 +25,7 @@ from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
 from app.db.repositories.user_repo import UserRepository
 from app.listers.ebay_auth import EbayAuth
 from app.middleware.auth_middleware import get_current_user
+from app.middleware.rate_limiter import get_redis
 from app.services.user_service import (
     AuthenticationError,
     RegistrationError,
@@ -211,6 +212,14 @@ async def ebay_connect(
     # Encode user_id in state so callback can identify user without JWT
     state = f"{user['sub']}:{csrf_nonce}"
 
+    # Persist nonce in Redis for server-side validation on callback (10 min TTL)
+    try:
+        redis = await get_redis()
+        if redis:
+            await redis.set(f"oauth_state:{csrf_nonce}", user["sub"], ex=600)
+    except Exception:
+        logger.warning("Failed to store OAuth nonce in Redis — CSRF validation will be skipped")
+
     ebay_auth = EbayAuth()
     authorization_url = ebay_auth.get_authorization_url(state=state)
 
@@ -243,18 +252,35 @@ async def ebay_callback(
     """
     settings = get_settings()
 
-    # Determine frontend URL for redirect
-    frontend_url = settings.cors_allowed_origins.split(",")[0].strip() if settings.cors_allowed_origins else "http://localhost:5173"
+    # Determine frontend URL for redirect (prefer explicit config, fall back to CORS)
+    frontend_url = settings.frontend_base_url or (
+        settings.cors_allowed_origins.split(",")[0].strip()
+        if settings.cors_allowed_origins else "http://localhost:5173"
+    )
     if frontend_url and not frontend_url.startswith("http"):
         frontend_url = f"https://{frontend_url}"
 
-    # Extract user_id from state (format: "user_id:csrf_nonce")
+    # Extract user_id and nonce from state (format: "user_id:csrf_nonce")
     try:
-        user_id_str, _ = state.split(":", 1)
+        user_id_str, csrf_nonce = state.split(":", 1)
         user_id = uuid.UUID(user_id_str)
     except (ValueError, AttributeError):
         logger.error(f"Invalid state parameter in eBay callback: {state}")
         return RedirectResponse(f"{frontend_url}/settings?ebay=error&reason=invalid_state")
+
+    # Validate nonce against Redis (prevents CSRF / state-fixation attacks)
+    try:
+        redis = await get_redis()
+        if redis:
+            stored_user_id = await redis.get(f"oauth_state:{csrf_nonce}")
+            if stored_user_id and stored_user_id != user_id_str:
+                logger.error(f"OAuth state nonce mismatch for user {user_id_str}")
+                return RedirectResponse(f"{frontend_url}/settings?ebay=error&reason=invalid_state")
+            # Delete nonce to prevent replay
+            if stored_user_id:
+                await redis.delete(f"oauth_state:{csrf_nonce}")
+    except Exception:
+        logger.warning("Redis unavailable for OAuth nonce validation — skipping CSRF check")
 
     ebay_auth = EbayAuth()
 
