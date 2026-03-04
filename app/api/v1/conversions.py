@@ -143,6 +143,7 @@ async def _get_ebay_lister(user_id: str, db: AsyncSession) -> EbayLister | None:
             fulfillment_policy_id=settings.ebay_fulfillment_policy_id,
             payment_policy_id=settings.ebay_payment_policy_id,
             return_policy_id=settings.ebay_return_policy_id,
+            default_category_id=settings.ebay_default_category_id,
         )
     except Exception as e:
         logger.warning(f"Failed to build EbayLister for user {user_id}: {e}")

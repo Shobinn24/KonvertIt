@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     ebay_fulfillment_policy_id: str = ""
     ebay_payment_policy_id: str = ""
     ebay_return_policy_id: str = ""
+    ebay_default_category_id: str = ""  # Fallback leaf category ID when Taxonomy API fails
 
     # ─── Proxy Configuration ─────────────────────────────────
     scraper_api_key: str = ""

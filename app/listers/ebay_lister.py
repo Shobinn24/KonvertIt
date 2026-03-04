@@ -11,7 +11,9 @@ Supports listing creation, updates, price changes, and ending listings.
 
 import logging
 import re
+import uuid as uuid_mod
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 import httpx
 
@@ -47,6 +49,7 @@ class EbayLister(IListable):
         fulfillment_policy_id: str = "",
         payment_policy_id: str = "",
         return_policy_id: str = "",
+        default_category_id: str = "",
     ):
         self._access_token = access_token
         self._base_url = base_url
@@ -54,6 +57,7 @@ class EbayLister(IListable):
         self._fulfillment_policy_id = fulfillment_policy_id
         self._payment_policy_id = payment_policy_id
         self._return_policy_id = return_policy_id
+        self._default_category_id = default_category_id
 
     def _get_headers(self) -> dict[str, str]:
         """Build authorization and content headers."""
@@ -151,6 +155,35 @@ class EbayLister(IListable):
 
         return item
 
+    async def _get_suggested_category(self, title: str) -> str:
+        """Get the best leaf category ID for a product title using eBay Taxonomy API.
+
+        Uses the Commerce Taxonomy API to find category suggestions based on
+        the product title. Returns the first suggested category ID (always a
+        leaf category), or empty string if the API call fails.
+
+        Category tree ID 0 = EBAY_US.
+        """
+        try:
+            # Truncate title to avoid overly long query params
+            query = quote(title[:150].strip())
+            response = await self._request(
+                "GET",
+                f"/commerce/taxonomy/v1/category_tree/0/get_category_suggestions?q={query}",
+                expected_status=(200,),
+            )
+            suggestions = response.get("categorySuggestions", []) if response else []
+            if suggestions:
+                category_id = suggestions[0].get("category", {}).get("categoryId", "")
+                category_name = suggestions[0].get("category", {}).get("categoryName", "")
+                if category_id:
+                    logger.info(f"Auto-detected eBay category: {category_id} ({category_name})")
+                    return category_id
+        except Exception as e:
+            logger.warning(f"Failed to get category suggestion: {e}")
+
+        return ""
+
     def _build_offer(self, draft: ListingDraft, sku: str, location_key: str | None = None) -> dict:
         """Build the eBay offer payload."""
         offer = {
@@ -170,8 +203,10 @@ class EbayLister(IListable):
                 "paymentPolicyId": self._payment_policy_id,
                 "returnPolicyId": self._return_policy_id,
             },
-            "categoryId": draft.category_id or "175673",
         }
+
+        if draft.category_id:
+            offer["categoryId"] = draft.category_id
 
         # Only include merchantLocationKey if we have a valid one
         if location_key:
@@ -281,20 +316,18 @@ class EbayLister(IListable):
 
             logger.info(f"Adding shipFrom to fulfillment policy {self._fulfillment_policy_id}")
 
-            # Build update payload with only writable fields (strip read-only ones)
-            update_payload = {
-                "name": policy.get("name", ""),
-                "marketplaceId": policy.get("marketplaceId", self._marketplace_id),
-                "categoryTypes": policy.get("categoryTypes", []),
-                "handlingTime": policy.get("handlingTime", {"value": 3, "unit": "BUSINESS_DAY"}),
-                "shippingOptions": policy.get("shippingOptions", []),
-                "shipToLocations": policy.get("shipToLocations", {}),
-                "globalShipping": policy.get("globalShipping", False),
-                "freightShipping": policy.get("freightShipping", False),
-                "shipFrom": {
-                    "country": "US",
-                    "postalCode": "95125",
-                },
+            # Only forward writable fields from the GET response to avoid
+            # sending read-only fields (fulfillmentPolicyId, warnings, etc.)
+            # that cause eBay to reject the PUT.
+            writable_keys = {
+                "name", "marketplaceId", "categoryTypes", "handlingTime",
+                "shippingOptions", "shipToLocations", "globalShipping",
+                "freightShipping",
+            }
+            update_payload = {k: v for k, v in policy.items() if k in writable_keys}
+            update_payload["shipFrom"] = {
+                "country": "US",
+                "postalCode": "95125",
             }
 
             await self._request(
@@ -404,6 +437,19 @@ class EbayLister(IListable):
             "name": "KonvertIt Default",
             "locationTypes": ["WAREHOUSE"],
         }
+        # For PUT /location/{key}, eBay expects address at the top level
+        location_payload_flat = {
+            "name": "KonvertIt Default",
+            "locationTypes": ["WAREHOUSE"],
+            "merchantLocationStatus": "ENABLED",
+            "address": {
+                "addressLine1": "123 Main St",
+                "city": "San Jose",
+                "stateOrProvince": "CA",
+                "postalCode": "95125",
+                "country": "US",
+            },
+        }
 
         # eBay uses POST to create inventory locations
         try:
@@ -424,12 +470,12 @@ class EbayLister(IListable):
         except Exception as e:
             logger.warning(f"Unexpected error creating inventory location: {e}")
 
-        # POST failed — try PUT as fallback (create or replace)
+        # POST failed — try PUT as fallback (create or replace, uses flat address)
         try:
             await self._request(
                 "PUT",
                 f"{INVENTORY_API}/location/{location_key}",
-                json_data=location_payload,
+                json_data=location_payload_flat,
                 expected_status=(200, 201, 204),
             )
             logger.info(f"Inventory location created (PUT): {location_key}")
@@ -463,24 +509,41 @@ class EbayLister(IListable):
             ListingResult with eBay item ID and status.
         """
         sku = draft.sku or f"KI-{draft.source_product_id}"
-        logger.info(f"Creating eBay listing for SKU: {sku}")
+        encoded_sku = quote(sku, safe="")
+        cid = uuid_mod.uuid4().hex[:8]  # Correlation ID for this listing attempt
+        logger.info(f"[{cid}] Creating eBay listing for SKU: {sku}")
 
         try:
             # Step 1: Create or update inventory item
             inventory_payload = self._build_inventory_item(draft)
             await self._request(
                 "PUT",
-                f"{INVENTORY_API}/inventory_item/{sku}",
+                f"{INVENTORY_API}/inventory_item/{encoded_sku}",
                 json_data=inventory_payload,
                 expected_status=(200, 201, 204),
             )
-            logger.info(f"Inventory item created/updated: {sku}")
+            logger.info(f"[{cid}] Inventory item created/updated: {sku}")
 
             # Step 1.5: Auto-fetch business policies if not configured
             await self._ensure_business_policies()
 
             # Step 1.6: Ensure inventory location exists (required for offers)
             location_key = await self._ensure_inventory_location()
+
+            # Step 1.7: Auto-detect leaf category if not set
+            if not draft.category_id:
+                suggested = await self._get_suggested_category(draft.title)
+                if suggested:
+                    draft = draft.model_copy(update={"category_id": suggested})
+                elif self._default_category_id:
+                    logger.warning(f"[{cid}] Taxonomy API returned no suggestion, using default category: {self._default_category_id}")
+                    draft = draft.model_copy(update={"category_id": self._default_category_id})
+                else:
+                    raise ListingError(
+                        "Could not determine eBay category for this product. "
+                        "Set EBAY_DEFAULT_CATEGORY_ID as a fallback.",
+                        details={"title": draft.title, "sku": sku},
+                    )
 
             # Step 2: Create offer (delete stale orphaned offers first)
             offer_payload = self._build_offer(draft, sku, location_key)
@@ -489,7 +552,7 @@ class EbayLister(IListable):
             try:
                 existing_offers = await self._request(
                     "GET",
-                    f"{INVENTORY_API}/offer?sku={sku}",
+                    f"{INVENTORY_API}/offer?sku={encoded_sku}",
                     expected_status=(200,),
                 )
                 for old_offer in (existing_offers.get("offers", []) if existing_offers else []):
@@ -508,15 +571,39 @@ class EbayLister(IListable):
             except (ListingError, Exception):
                 pass  # No existing offers or lookup failed — fine, we'll create new
 
-            # Create fresh offer
-            offer_response = await self._request(
-                "POST",
-                f"{INVENTORY_API}/offer",
-                json_data=offer_payload,
-                expected_status=(200, 201),
-            )
-            offer_id = offer_response.get("offerId", "") if offer_response else ""
-            logger.info(f"Offer created: {offer_id}")
+            # Create fresh offer (handle 409 by reusing existing)
+            try:
+                offer_response = await self._request(
+                    "POST",
+                    f"{INVENTORY_API}/offer",
+                    json_data=offer_payload,
+                    expected_status=(200, 201),
+                )
+                offer_id = offer_response.get("offerId", "") if offer_response else ""
+                logger.info(f"[{cid}] Offer created: {offer_id}")
+            except ListingError as e:
+                if "409" in str(e) or "already exists" in str(e).lower():
+                    # Offer already exists for this SKU — fetch and reuse it
+                    logger.info(f"Offer already exists for SKU {sku}, fetching existing offer")
+                    existing = await self._request(
+                        "GET",
+                        f"{INVENTORY_API}/offer?sku={encoded_sku}",
+                        expected_status=(200,),
+                    )
+                    offers = existing.get("offers", []) if existing else []
+                    if not offers:
+                        raise
+                    offer_id = offers[0].get("offerId", "")
+                    # Update the existing offer with our payload
+                    await self._request(
+                        "PUT",
+                        f"{INVENTORY_API}/offer/{offer_id}",
+                        json_data=offer_payload,
+                        expected_status=(200, 204),
+                    )
+                    logger.info(f"[{cid}] Reused and updated existing offer: {offer_id}")
+                else:
+                    raise
 
             # Step 3: Publish offer
             publish_response = await self._request(
@@ -525,10 +612,11 @@ class EbayLister(IListable):
                 expected_status=(200,),
             )
             listing_id = publish_response.get("listingId", "") if publish_response else ""
-            logger.info(f"Listing published: {listing_id}")
+            logger.info(f"[{cid}] Listing published: {listing_id} (offer: {offer_id})")
 
             return ListingResult(
                 marketplace_item_id=listing_id,
+                offer_id=offer_id,
                 status=ListingStatus.ACTIVE,
                 url=f"https://www.ebay.com/itm/{listing_id}" if listing_id else "",
                 created_at=datetime.now(UTC),
@@ -551,6 +639,7 @@ class EbayLister(IListable):
         Updates the inventory item and revises the offer price/details.
         """
         sku = draft.sku or f"KI-{draft.source_product_id}"
+        encoded_sku = quote(sku, safe="")
         logger.info(f"Updating eBay listing {listing_id} (SKU: {sku})")
 
         try:
@@ -558,7 +647,7 @@ class EbayLister(IListable):
             inventory_payload = self._build_inventory_item(draft)
             await self._request(
                 "PUT",
-                f"{INVENTORY_API}/inventory_item/{sku}",
+                f"{INVENTORY_API}/inventory_item/{encoded_sku}",
                 json_data=inventory_payload,
                 expected_status=(200, 201, 204),
             )
@@ -566,7 +655,7 @@ class EbayLister(IListable):
             # Get existing offers for this SKU to find the offer ID
             offers_response = await self._request(
                 "GET",
-                f"{INVENTORY_API}/offer?sku={sku}",
+                f"{INVENTORY_API}/offer?sku={encoded_sku}",
                 expected_status=(200,),
             )
 
@@ -603,37 +692,42 @@ class EbayLister(IListable):
                 details={"listing_id": listing_id, "error_type": type(e).__name__},
             ) from e
 
-    async def end_listing(self, listing_id: str, reason: str = "") -> bool:
+    async def end_listing(self, offer_id: str, reason: str = "") -> bool:
         """
         End an eBay listing by withdrawing its offer.
+
+        Args:
+            offer_id: The eBay offer ID (NOT listing ID) to withdraw.
+            reason: Optional reason for ending the listing.
         """
-        logger.info(f"Ending eBay listing {listing_id} (reason: {reason or 'none'})")
+        logger.info(f"Withdrawing eBay offer {offer_id} (reason: {reason or 'none'})")
 
         try:
             await self._request(
                 "POST",
-                f"{INVENTORY_API}/offer/{listing_id}/withdraw",
+                f"{INVENTORY_API}/offer/{offer_id}/withdraw",
                 expected_status=(200, 204),
             )
-            logger.info(f"Listing {listing_id} ended successfully")
+            logger.info(f"Offer {offer_id} withdrawn successfully")
             return True
 
         except (EbayAuthError, ListingError):
             raise
         except Exception as e:
             raise ListingError(
-                f"Failed to end eBay listing {listing_id}: {e}",
-                details={"listing_id": listing_id, "error_type": type(e).__name__},
+                f"Failed to withdraw eBay offer {offer_id}: {e}",
+                details={"offer_id": offer_id, "error_type": type(e).__name__},
             ) from e
 
     async def update_price(self, sku: str, new_price: float, currency: str = "USD") -> bool:
         """Quick price update for an existing listing."""
+        encoded_sku = quote(sku, safe="")
         logger.info(f"Updating price for SKU {sku}: ${new_price:.2f}")
 
         try:
             offers_response = await self._request(
                 "GET",
-                f"{INVENTORY_API}/offer?sku={sku}",
+                f"{INVENTORY_API}/offer?sku={encoded_sku}",
                 expected_status=(200,),
             )
 
@@ -642,9 +736,14 @@ class EbayLister(IListable):
                 raise ListingError(f"No offers found for SKU {sku}")
 
             offer_id = offers[0].get("offerId", "")
-            offer = offers[0]
+            existing = offers[0]
 
-            offer["pricingSummary"] = {
+            # Only update pricingSummary — preserve all other fields from the
+            # existing offer to avoid dropping data with a partial PUT.
+            # Strip read-only fields that eBay rejects on PUT.
+            read_only = {"offerId", "status", "listing", "listingId"}
+            update_payload = {k: v for k, v in existing.items() if k not in read_only}
+            update_payload["pricingSummary"] = {
                 "price": {
                     "value": f"{new_price:.2f}",
                     "currency": currency,
@@ -654,7 +753,7 @@ class EbayLister(IListable):
             await self._request(
                 "PUT",
                 f"{INVENTORY_API}/offer/{offer_id}",
-                json_data=offer,
+                json_data=update_payload,
                 expected_status=(200, 204),
             )
 

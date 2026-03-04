@@ -94,7 +94,8 @@ class TestPayloadBuilding:
 
         assert item["condition"] == "NEW"
         assert item["product"]["title"] == sample_draft.title
-        assert item["product"]["description"] == sample_draft.description_html
+        # description is plain text (HTML stripped), not raw HTML
+        assert item["product"]["description"] == "Fast charger by Anker"
         assert len(item["product"]["imageUrls"]) == 2
         assert item["availability"]["shipToLocationAvailability"]["quantity"] == 1
         assert item["sku"] == "KI-B09C5RG6KV"
@@ -150,11 +151,14 @@ class TestCreateListing:
                 return {"listingId": "987654321"}
             return {}
 
-        with patch.object(lister, "_request", side_effect=mock_request):
+        with patch.object(lister, "_request", side_effect=mock_request), \
+             patch.object(lister, "_ensure_business_policies", new_callable=AsyncMock), \
+             patch.object(lister, "_ensure_inventory_location", new_callable=AsyncMock, return_value="office"):
             result = await lister.create_listing(sample_draft)
 
         assert isinstance(result, ListingResult)
         assert result.marketplace_item_id == "987654321"
+        assert result.offer_id == "offer-123"
         assert result.status == ListingStatus.ACTIVE
         assert "ebay.com" in result.url
 
@@ -190,11 +194,116 @@ class TestCreateListing:
                 return {"listingId": "111222333"}
             return None
 
-        with patch.object(lister, "_request", side_effect=mock_request):
+        with patch.object(lister, "_request", side_effect=mock_request), \
+             patch.object(lister, "_ensure_business_policies", new_callable=AsyncMock), \
+             patch.object(lister, "_ensure_inventory_location", new_callable=AsyncMock, return_value="office"):
             result = await lister.create_listing(sample_draft)
 
         # Should have used auto-generated SKU
         assert any("KI-B09C5RG6KV" in path for _, path in calls)
+
+    @pytest.mark.asyncio
+    async def test_create_listing_auto_detects_category(self, lister, sample_draft):
+        """Should auto-detect leaf category via Taxonomy API when category_id is empty."""
+        sample_draft.category_id = ""
+
+        async def mock_request(method, path, json_data=None, expected_status=(200, 201, 204)):
+            if "category_suggestions" in path:
+                return {
+                    "categorySuggestions": [{
+                        "category": {"categoryId": "183476", "categoryName": "Dinnerware Plates"},
+                    }]
+                }
+            if method == "PUT" and "inventory_item" in path:
+                return None
+            if method == "POST" and path.endswith("/offer"):
+                return {"offerId": "offer-auto"}
+            if method == "POST" and "publish" in path:
+                return {"listingId": "auto-123"}
+            return {}
+
+        with patch.object(lister, "_request", side_effect=mock_request), \
+             patch.object(lister, "_ensure_business_policies", new_callable=AsyncMock), \
+             patch.object(lister, "_ensure_inventory_location", new_callable=AsyncMock, return_value="office"):
+            result = await lister.create_listing(sample_draft)
+
+        assert result.marketplace_item_id == "auto-123"
+        assert result.status == ListingStatus.ACTIVE
+
+    @pytest.mark.asyncio
+    async def test_create_listing_fails_without_category(self, lister, sample_draft):
+        """Should raise ListingError when no category can be determined."""
+        sample_draft.category_id = ""
+
+        async def mock_request(method, path, json_data=None, expected_status=(200, 201, 204)):
+            if "category_suggestions" in path:
+                return {"categorySuggestions": []}  # No suggestions
+            if method == "PUT" and "inventory_item" in path:
+                return None
+            return {}
+
+        with patch.object(lister, "_request", side_effect=mock_request), \
+             patch.object(lister, "_ensure_business_policies", new_callable=AsyncMock), \
+             patch.object(lister, "_ensure_inventory_location", new_callable=AsyncMock, return_value="office"):
+            with pytest.raises(ListingError, match="Could not determine eBay category"):
+                await lister.create_listing(sample_draft)
+
+    @pytest.mark.asyncio
+    async def test_create_listing_uses_default_category_fallback(self, sample_draft):
+        """Should use configured default category when taxonomy returns nothing."""
+        sample_draft.category_id = ""
+        lister_with_default = EbayLister(
+            access_token="test-token-12345",
+            base_url="https://api.sandbox.ebay.com",
+            default_category_id="99999",
+        )
+
+        async def mock_request(method, path, json_data=None, expected_status=(200, 201, 204)):
+            if "category_suggestions" in path:
+                return {"categorySuggestions": []}  # No suggestions
+            if method == "PUT" and "inventory_item" in path:
+                return None
+            if method == "POST" and path.endswith("/offer"):
+                return {"offerId": "offer-default"}
+            if method == "POST" and "publish" in path:
+                return {"listingId": "default-123"}
+            return {}
+
+        with patch.object(lister_with_default, "_request", side_effect=mock_request), \
+             patch.object(lister_with_default, "_ensure_business_policies", new_callable=AsyncMock), \
+             patch.object(lister_with_default, "_ensure_inventory_location", new_callable=AsyncMock, return_value="office"):
+            result = await lister_with_default.create_listing(sample_draft)
+
+        assert result.marketplace_item_id == "default-123"
+
+    @pytest.mark.asyncio
+    async def test_create_listing_handles_409_offer_conflict(self, lister, sample_draft):
+        """Should reuse existing offer when POST returns 409."""
+        call_log = []
+
+        async def mock_request(method, path, json_data=None, expected_status=(200, 201, 204)):
+            call_log.append((method, path))
+            if method == "PUT" and "inventory_item" in path:
+                return None
+            if method == "GET" and "offer?sku=" in path:
+                return {"offers": [{"offerId": "existing-offer-99"}]}
+            if method == "DELETE":
+                return None
+            if method == "POST" and path.endswith("/offer"):
+                raise ListingError("eBay API error (409): offer already exists")
+            if method == "PUT" and "offer/existing-offer-99" in path:
+                return None
+            if method == "POST" and "publish" in path:
+                return {"listingId": "reused-listing-456"}
+            return {}
+
+        with patch.object(lister, "_request", side_effect=mock_request), \
+             patch.object(lister, "_ensure_business_policies", new_callable=AsyncMock), \
+             patch.object(lister, "_ensure_inventory_location", new_callable=AsyncMock, return_value="office"):
+            result = await lister.create_listing(sample_draft)
+
+        assert result.marketplace_item_id == "reused-listing-456"
+        assert result.offer_id == "existing-offer-99"
 
 
 # ─── Update Listing Tests ────────────────────────────────
@@ -242,15 +351,23 @@ class TestUpdateListing:
 
 
 class TestEndListing:
-    """Tests for ending listings."""
+    """Tests for ending listings via offer withdrawal."""
 
     @pytest.mark.asyncio
     async def test_end_listing_success(self, lister):
-        """Should withdraw the offer."""
-        with patch.object(lister, "_request", return_value=None):
+        """Should withdraw the offer using the offer ID."""
+        calls = []
+
+        async def mock_request(method, path, json_data=None, expected_status=(200, 201, 204)):
+            calls.append((method, path))
+            return None
+
+        with patch.object(lister, "_request", side_effect=mock_request):
             result = await lister.end_listing("offer-123", reason="Out of stock")
 
         assert result is True
+        # Verify it calls withdraw with the offer ID, not a listing ID
+        assert any("offer/offer-123/withdraw" in path for _, path in calls)
 
     @pytest.mark.asyncio
     async def test_end_listing_auth_failure(self, lister):
@@ -270,17 +387,24 @@ class TestUpdatePrice:
 
     @pytest.mark.asyncio
     async def test_update_price_success(self, lister):
-        """Should update offer price."""
+        """Should update offer price and strip read-only fields."""
+        put_payload = {}
 
         async def mock_request(method, path, json_data=None, expected_status=(200, 201, 204)):
+            nonlocal put_payload
             if method == "GET":
                 return {
                     "offers": [{
                         "offerId": "offer-789",
+                        "status": "PUBLISHED",
+                        "listingId": "123456",
+                        "sku": "KI-TEST",
                         "pricingSummary": {"price": {"value": "39.99", "currency": "USD"}},
+                        "categoryId": "67580",
                     }]
                 }
             elif method == "PUT":
+                put_payload = json_data
                 return None
             return {}
 
@@ -288,6 +412,15 @@ class TestUpdatePrice:
             result = await lister.update_price("KI-TEST", 44.99)
 
         assert result is True
+        # Verify read-only fields were stripped
+        assert "offerId" not in put_payload
+        assert "status" not in put_payload
+        assert "listingId" not in put_payload
+        # Verify writable fields preserved
+        assert put_payload["sku"] == "KI-TEST"
+        assert put_payload["categoryId"] == "67580"
+        # Verify new price
+        assert put_payload["pricingSummary"]["price"]["value"] == "44.99"
 
     @pytest.mark.asyncio
     async def test_update_price_no_offers(self, lister):

@@ -106,12 +106,12 @@ class IListable(ABC):
         ...
 
     @abstractmethod
-    async def end_listing(self, listing_id: str, reason: str = "") -> bool:
+    async def end_listing(self, offer_id: str, reason: str = "") -> bool:
         """
         End/deactivate a listing on the target marketplace.
 
         Args:
-            listing_id: The marketplace listing ID to end.
+            offer_id: The eBay offer ID to withdraw.
             reason: Optional reason for ending the listing.
 
         Returns:

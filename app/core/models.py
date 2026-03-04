@@ -104,6 +104,7 @@ class ListingResult(BaseModel):
     """Result of a listing creation or update operation."""
 
     marketplace_item_id: str = Field(default="")
+    offer_id: str = Field(default="")
     status: ListingStatus = ListingStatus.DRAFT
     url: str = Field(default="")
     fees_estimate: float = Field(default=0.0)
