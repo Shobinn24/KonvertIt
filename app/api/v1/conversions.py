@@ -30,8 +30,10 @@ from app.converters.ebay_converter import EbayConverter
 from app.core.encryption import decrypt, encrypt
 from app.core.exceptions import ConversionError, KonvertItError
 from app.db.database import get_db
+from app.db.mappers import conversion_from_result, listing_from_draft, product_from_scraped
 from app.db.repositories.conversion_repo import ConversionRepository
 from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
+from app.db.repositories.product_repo import ProductRepository
 from app.listers.ebay_auth import EbayAuth
 from app.listers.ebay_lister import EbayLister
 from app.middleware.auth_middleware import get_current_user
@@ -44,7 +46,7 @@ from app.middleware.rate_limiter import (
 from app.scrapers.browser_manager import BrowserManager
 from app.scrapers.proxy_manager import ProxyManager
 from app.services.compliance_service import ComplianceService
-from app.services.conversion_service import ConversionService
+from app.services.conversion_service import ConversionResult, ConversionService
 from app.services.profit_engine import ProfitEngine
 from app.services.sse_manager import SSEProgressManager
 
@@ -193,6 +195,62 @@ def get_sse_manager() -> SSEProgressManager:
     return _sse_manager
 
 
+async def _persist_conversion_result(
+    result: ConversionResult,
+    user_id: str,
+    db: AsyncSession,
+) -> None:
+    """Persist Product, Listing, and Conversion records from a pipeline result.
+
+    Saves the scraped product (deduplicating by source ID), optional listing,
+    and a conversion record linking them. Errors are logged but never raised
+    so a persistence failure doesn't break the API response.
+    """
+    if not result.product:
+        return
+
+    try:
+        uid = uuid.UUID(user_id)
+
+        # 1. Reuse existing Product or create new one
+        product_repo = ProductRepository(db)
+        product_orm = await product_repo.find_by_source_id(
+            user_id=uid,
+            source_marketplace=result.product.source_marketplace.value,
+            source_product_id=result.product.source_product_id,
+        )
+        if not product_orm:
+            product_orm = product_from_scraped(result.product, uid)
+            db.add(product_orm)
+            await db.flush()
+
+        # 2. Save Listing if draft + listing result exist
+        listing_orm = None
+        if result.draft and result.listing:
+            listing_orm = listing_from_draft(result.draft, uid, result.listing)
+            db.add(listing_orm)
+            await db.flush()
+
+        # 3. Save Conversion record linking product → listing
+        status = result.status.value
+        conversion_orm = conversion_from_result(
+            user_id=uid,
+            product_id=product_orm.id,
+            status=status,
+            listing_id=listing_orm.id if listing_orm else None,
+            error_message=result.error or None,
+        )
+        db.add(conversion_orm)
+        await db.commit()
+        logger.info(f"Persisted conversion for {result.url} (status={status})")
+    except Exception as e:
+        logger.error(f"Failed to persist conversion for {result.url}: {e}", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
 # ─── Standard Endpoints ──────────────────────────────────
 
 
@@ -224,6 +282,9 @@ async def create_conversion(
                 publish=request.publish,
                 sell_price=request.sell_price,
             )
+
+            # Persist product, listing, and conversion to DB
+            await _persist_conversion_result(result, user_id, db)
 
             # Push real-time notification via WebSocket
             try:
@@ -277,6 +338,11 @@ async def create_bulk_conversion(
                 publish=request.publish,
                 sell_price=request.sell_price,
             )
+
+            # Persist all results to DB
+            for conv_result in progress.results:
+                await _persist_conversion_result(conv_result, user_id, db)
+
             return progress.to_dict()
 
     except KonvertItError as e:
@@ -457,7 +523,7 @@ async def create_bulk_conversion_stream(
 
             service.convert_url = convert_with_notification
 
-            await service.convert_bulk(
+            progress = await service.convert_bulk(
                 urls=request.urls,
                 user_id=user_id,
                 publish=request.publish,
@@ -466,6 +532,10 @@ async def create_bulk_conversion_stream(
                 on_item_complete=on_item_complete,
                 cancel_check=cancel_check,
             )
+
+            # Persist all results to DB
+            for conv_result in progress.results:
+                await _persist_conversion_result(conv_result, user_id, db)
 
             await manager.emit_job_completed(jid)
 
