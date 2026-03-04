@@ -44,6 +44,7 @@ class EbayConverter(BaseConverter):
             description_html=description,
             price=product.price,  # Will be overridden by profit engine
             images=product.images[:12],
+            brand=product.brand,
             condition=self._detect_condition(product),
             sku=sku,
             target_marketplace=TargetMarketplace.EBAY,

@@ -150,6 +150,11 @@ class EbayLister(IListable):
             },
         }
 
+        if draft.brand:
+            item["product"]["aspects"] = {"Brand": [draft.brand]}
+        else:
+            item["product"]["aspects"] = {"Brand": ["Unbranded"]}
+
         if draft.sku:
             item["sku"] = draft.sku
 

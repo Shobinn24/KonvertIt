@@ -39,6 +39,7 @@ def sample_draft() -> ListingDraft:
             "https://example.com/img2.jpg",
         ],
         category_id="67580",
+        brand="Anker",
         condition="New",
         sku="KI-B09C5RG6KV",
         quantity=1,
@@ -99,6 +100,13 @@ class TestPayloadBuilding:
         assert len(item["product"]["imageUrls"]) == 2
         assert item["availability"]["shipToLocationAvailability"]["quantity"] == 1
         assert item["sku"] == "KI-B09C5RG6KV"
+        assert item["product"]["aspects"] == {"Brand": ["Anker"]}
+
+    def test_build_inventory_item_unbranded_fallback(self, lister, sample_draft):
+        """Should default to 'Unbranded' when brand is empty."""
+        sample_draft.brand = ""
+        item = lister._build_inventory_item(sample_draft)
+        assert item["product"]["aspects"] == {"Brand": ["Unbranded"]}
 
     def test_build_offer(self, lister, sample_draft):
         """Should build correct offer payload."""
