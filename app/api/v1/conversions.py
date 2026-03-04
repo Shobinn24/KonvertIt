@@ -33,6 +33,7 @@ from app.db.database import get_db
 from app.db.mappers import conversion_from_result, listing_from_draft, product_from_scraped
 from app.db.repositories.conversion_repo import ConversionRepository
 from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
+from app.db.repositories.listing_repo import ListingRepository
 from app.db.repositories.product_repo import ProductRepository
 from app.listers.ebay_auth import EbayAuth
 from app.listers.ebay_lister import EbayLister
@@ -251,6 +252,39 @@ async def _persist_conversion_result(
             pass
 
 
+async def _check_listing_cap(
+    user: dict,
+    db: AsyncSession,
+    count: int = 1,
+) -> None:
+    """Raise 403 if publishing would exceed the user's active listing cap.
+
+    Args:
+        user: JWT user dict (has 'sub' and 'tier' keys).
+        db: Database session.
+        count: Number of new listings about to be created.
+    """
+    from app.middleware.rate_limiter import TIER_RATE_LIMITS
+
+    tier = user.get("tier", "free")
+    max_listings = TIER_RATE_LIMITS.get(tier, TIER_RATE_LIMITS["free"])["max_listings"]
+    if max_listings == -1:
+        return  # Unlimited
+
+    listing_repo = ListingRepository(db)
+    active_listings = await listing_repo.find_active_by_user(uuid.UUID(user["sub"]))
+    current_count = len(active_listings)
+
+    if current_count + count > max_listings:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Active listing cap reached: {current_count}/{max_listings} "
+                f"on {tier} tier. Upgrade your plan for more listings."
+            ),
+        )
+
+
 # ─── Standard Endpoints ──────────────────────────────────
 
 
@@ -273,6 +307,9 @@ async def create_conversion(
     """
     add_rate_limit_headers(response, rate_info)
     user_id = user["sub"]
+
+    if request.publish:
+        await _check_listing_cap(user, db)
 
     try:
         async with _conversion_service_context(user_id, db) as service:
@@ -329,6 +366,9 @@ async def create_bulk_conversion(
     """
     add_rate_limit_headers(response, rate_info)
     user_id = user["sub"]
+
+    if request.publish:
+        await _check_listing_cap(user, db, count=len(request.urls))
 
     try:
         async with _conversion_service_context(user_id, db) as service:
@@ -453,6 +493,10 @@ async def create_bulk_conversion_stream(
     Subject to daily conversion rate limits (each URL counts as 1 conversion).
     """
     user_id = user["sub"]
+
+    if request.publish:
+        await _check_listing_cap(user, db, count=len(request.urls))
+
     manager = get_sse_manager()
     job_id = manager.create_job(request.urls)
 
