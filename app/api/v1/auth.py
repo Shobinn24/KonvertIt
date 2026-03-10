@@ -26,6 +26,7 @@ from app.db.repositories.user_repo import UserRepository
 from app.listers.ebay_auth import EbayAuth
 from app.middleware.auth_middleware import get_current_user
 from app.middleware.rate_limiter import get_redis
+from app.services.billing_service import BillingService
 from app.services.user_service import (
     AuthenticationError,
     RegistrationError,
@@ -118,12 +119,28 @@ async def register(
             email=body.email,
             password=body.password,
         )
-        return result
     except RegistrationError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=e.message,
         )
+
+    # Best-effort: create a Stripe customer so free-tier users are
+    # visible in the Stripe Dashboard.  If this fails, registration
+    # still succeeds — the customer will be created on checkout.
+    try:
+        billing = BillingService(user_repo=UserRepository(db))
+        await billing.get_or_create_customer(
+            user_id=uuid.UUID(result["user"]["id"]),
+            email=result["user"]["email"],
+        )
+    except Exception:
+        logger.warning(
+            "Stripe customer creation failed for user %s — will retry on checkout",
+            result["user"]["id"],
+        )
+
+    return result
 
 
 @router.post(
