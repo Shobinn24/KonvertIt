@@ -10,8 +10,8 @@ const config: Config = {
         darkBg: "#0B0E14",
         darkSurface: "#151921",
         darkBorder: "#262C36",
-        accentPurple: "#7C3AED",
-        accentBlue: "#00D1FF",
+        accentPurple: "#5B6ABF",
+        accentBlue: "#6BB8C9",
 
         // shadcn/ui semantic tokens
         primary: {

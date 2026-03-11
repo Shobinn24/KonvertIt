@@ -11,7 +11,7 @@
     --card-foreground: 210 20% 90%;
     --popover: 220 20% 9%;
     --popover-foreground: 210 20% 90%;
-    --primary: 263 84% 58%;           /* #7C3AED — accentPurple */
+    --primary: 231 38% 55%;           /* #5B6ABF — steel indigo */
     --primary-foreground: 0 0% 100%;
     --secondary: 220 18% 14%;
     --secondary-foreground: 210 20% 90%;
@@ -23,10 +23,10 @@
     --destructive-foreground: 0 0% 100%;
     --border: 220 15% 18%;            /* #262C36 */
     --input: 220 15% 18%;
-    --ring: 263 84% 58%;              /* purple ring */
+    --ring: 231 38% 55%;              /* steel indigo ring */
     --radius: 0.5rem;
-    --chart-1: 263 84% 58%;
-    --chart-2: 187 100% 50%;
+    --chart-1: 231 38% 55%;
+    --chart-2: 193 34% 60%;
     --chart-3: 142 72% 45%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
@@ -67,20 +67,20 @@
   /* Neon glow for action buttons */
   .btn-glow {
     @apply transition-all duration-300;
-    box-shadow: 0 0 10px rgba(124, 58, 237, 0.3);
+    box-shadow: 0 0 10px rgba(91, 106, 191, 0.3);
   }
   .btn-glow:hover {
-    box-shadow: 0 0 20px rgba(124, 58, 237, 0.6);
+    box-shadow: 0 0 20px rgba(91, 106, 191, 0.5);
     transform: translateY(-1px);
   }
 
   /* Cyan variant glow */
   .btn-glow-cyan {
     @apply transition-all duration-300;
-    box-shadow: 0 0 10px rgba(0, 209, 255, 0.3);
+    box-shadow: 0 0 10px rgba(107, 184, 201, 0.3);
   }
   .btn-glow-cyan:hover {
-    box-shadow: 0 0 20px rgba(0, 209, 255, 0.6);
+    box-shadow: 0 0 20px rgba(107, 184, 201, 0.5);
     transform: translateY(-1px);
   }
 
@@ -95,19 +95,19 @@
     @apply transition-all duration-300;
   }
   .card-hover-glow:hover {
-    border-color: rgba(124, 58, 237, 0.4);
-    box-shadow: 0 0 20px rgba(124, 58, 237, 0.1);
+    border-color: rgba(91, 106, 191, 0.4);
+    box-shadow: 0 0 20px rgba(91, 106, 191, 0.1);
   }
 
   /* Gradient text for hero headings */
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #00D1FF, #7C3AED);
+    background-image: linear-gradient(135deg, #6BB8C9, #5B6ABF);
   }
 
   /* Animated gradient background line */
   .gradient-line {
-    background: linear-gradient(90deg, #00D1FF, #7C3AED, #00D1FF);
+    background: linear-gradient(90deg, #6BB8C9, #5B6ABF, #6BB8C9);
     background-size: 200% 100%;
     animation: shimmer 3s ease-in-out infinite;
   }
@@ -123,8 +123,8 @@
   }
 
   @keyframes pulseGlow {
-    0%, 100% { box-shadow: 0 0 10px rgba(124, 58, 237, 0.3); }
-    50% { box-shadow: 0 0 25px rgba(124, 58, 237, 0.6); }
+    0%, 100% { box-shadow: 0 0 10px rgba(91, 106, 191, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(91, 106, 191, 0.5); }
   }
 
   /* Fade + slide up for demo listing result */
