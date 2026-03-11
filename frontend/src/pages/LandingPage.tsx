@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ShoppingCart,
@@ -10,10 +11,45 @@ import {
   ArrowRight,
   Check,
   Zap,
+  Loader2,
+  Tag,
+  ImageIcon,
+  FileText,
 } from "lucide-react";
+
+/* ─── Example listing shown after hero demo ─── */
+const EXAMPLE_LISTING = {
+  sourceUrl: "amazon.com/dp/B0C2C9NHZW",
+  sourcePrice: "$39.99",
+  ebayTitle: "Premium Wireless Bluetooth Headphones — Noise Cancelling, 40hr Battery, Foldable",
+  ebayPrice: "$54.99",
+  margin: "+37%",
+  optimizations: [
+    { icon: Type, label: "Title scrubbed — removed \"Amazon's Choice\" and brand junk" },
+    { icon: ImageIcon, label: "6 images processed — metadata stripped, resized to 1600px" },
+    { icon: Tag, label: "Smart markup applied — eBay fees + 37% profit margin" },
+    { icon: FileText, label: "Description reformatted to eBay-compliant HTML" },
+  ],
+};
 
 /* ─── Hero Section ─── */
 function HeroSection() {
+  const [url, setUrl] = useState("");
+  const [phase, setPhase] = useState<"idle" | "loading" | "done">("idle");
+
+  function handleKonvert() {
+    if (phase === "loading") return;
+
+    /* If they didn't enter anything, fill in the example URL for them */
+    if (!url.trim()) {
+      setUrl("https://www.amazon.com/dp/B0C2C9NHZW");
+    }
+
+    setPhase("loading");
+    /* Simulate a quick conversion */
+    setTimeout(() => setPhase("done"), 1800);
+  }
+
   return (
     <section className="relative overflow-hidden px-6 pb-24 pt-32">
       {/* Background gradient orbs */}
@@ -45,20 +81,91 @@ function HeroSection() {
               type="text"
               placeholder="Paste an Amazon or Walmart URL here..."
               className="flex-1 bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              readOnly
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                if (phase === "done") setPhase("idle");
+              }}
             />
-            <Link
-              to="/register"
-              className="btn-glow pulse-glow flex items-center gap-2 rounded-full bg-accentPurple px-6 py-3 text-sm font-semibold text-white"
+            <button
+              onClick={handleKonvert}
+              disabled={phase === "loading"}
+              className="btn-glow pulse-glow flex items-center gap-2 rounded-full bg-accentPurple px-6 py-3 text-sm font-semibold text-white disabled:opacity-70"
             >
-              <Zap className="h-4 w-4" />
-              Konvert It
-            </Link>
+              {phase === "loading" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Zap className="h-4 w-4" />
+              )}
+              {phase === "loading" ? "Converting..." : "Konvert It"}
+            </button>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             No credit card required. Start free with 50 conversions/day.
           </p>
         </div>
+
+        {/* Example Listing Result */}
+        {phase === "done" && (
+          <div className="mx-auto mt-10 max-w-2xl animate-[fadeSlideUp_0.5s_ease-out]">
+            <div className="rounded-xl border border-accentPurple/30 bg-darkSurface p-6 text-left shadow-lg shadow-accentPurple/10">
+              {/* Header */}
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+                    <Check className="h-4 w-4 text-emerald-400" />
+                  </div>
+                  <span className="text-sm font-semibold text-emerald-400">
+                    Listing Ready
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {EXAMPLE_LISTING.sourceUrl}
+                </span>
+              </div>
+
+              {/* eBay listing preview card */}
+              <div className="rounded-lg border border-darkBorder bg-darkBg p-4">
+                <h3 className="text-sm font-semibold leading-snug text-foreground">
+                  {EXAMPLE_LISTING.ebayTitle}
+                </h3>
+                <div className="mt-3 flex items-center gap-3">
+                  <span className="text-lg font-bold text-emerald-400">
+                    {EXAMPLE_LISTING.ebayPrice}
+                  </span>
+                  <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                    {EXAMPLE_LISTING.margin} margin
+                  </span>
+                  <span className="text-xs text-muted-foreground line-through">
+                    Source: {EXAMPLE_LISTING.sourcePrice}
+                  </span>
+                </div>
+
+                {/* Optimization breakdown */}
+                <div className="mt-4 space-y-2 border-t border-darkBorder pt-4">
+                  {EXAMPLE_LISTING.optimizations.map((opt) => (
+                    <div
+                      key={opt.label}
+                      className="flex items-start gap-2 text-xs text-muted-foreground"
+                    >
+                      <opt.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accentPurple" />
+                      <span>{opt.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA */}
+              <Link
+                to="/register"
+                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-accentPurple py-3 text-sm font-semibold text-white transition-colors hover:bg-accentPurple/90"
+              >
+                Sign Up to Publish to eBay
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -411,20 +518,47 @@ function PricingSection() {
 function Footer() {
   return (
     <footer className="border-t border-darkBorder px-6 py-12">
-      <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 sm:flex-row sm:justify-between">
-        <div className="flex items-center gap-3">
-          <img src="/logo.jpg" alt="KonvertIt" className="h-8 w-auto" />
-          <span className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} E-Clarx LLC
-          </span>
-        </div>
-        <div className="flex gap-6 text-sm text-muted-foreground">
-          <Link to="/login" className="hover:text-foreground">
-            Sign In
-          </Link>
-          <Link to="/register" className="hover:text-foreground">
-            Get Started
-          </Link>
+      <div className="mx-auto max-w-5xl">
+        <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
+          {/* Brand */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <img src="/logo.jpg" alt="KonvertIt" className="h-8 w-auto" />
+            </div>
+            <span className="text-sm text-muted-foreground">
+              &copy; {new Date().getFullYear()} E-Clarx LLC
+            </span>
+          </div>
+
+          {/* Links */}
+          <div className="flex gap-16">
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">Product</h4>
+              <div className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <Link to="/login" className="hover:text-foreground">
+                  Sign In
+                </Link>
+                <Link to="/register" className="hover:text-foreground">
+                  Get Started
+                </Link>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">Legal</h4>
+              <div className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
+                <Link to="/terms" className="hover:text-foreground">
+                  Terms of Service
+                </Link>
+                <Link to="/privacy" className="hover:text-foreground">
+                  Privacy Policy
+                </Link>
+                <Link to="/refund-policy" className="hover:text-foreground">
+                  Refund Policy
+                </Link>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </footer>

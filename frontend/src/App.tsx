@@ -11,6 +11,9 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { DiscoverPage } from "@/pages/DiscoverPage";
 import { HelpPage } from "@/pages/HelpPage";
 import { CheckoutSuccessPage } from "@/pages/CheckoutSuccessPage";
+import { TermsPage } from "@/pages/TermsPage";
+import { PrivacyPage } from "@/pages/PrivacyPage";
+import { RefundPolicyPage } from "@/pages/RefundPolicyPage";
 
 const router = createBrowserRouter([
   {
@@ -24,6 +27,18 @@ const router = createBrowserRouter([
   {
     path: "/register",
     element: <RegisterPage />,
+  },
+  {
+    path: "/terms",
+    element: <TermsPage />,
+  },
+  {
+    path: "/privacy",
+    element: <PrivacyPage />,
+  },
+  {
+    path: "/refund-policy",
+    element: <RefundPolicyPage />,
   },
   {
     element: <ProtectedRoute />,
