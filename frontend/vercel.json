@@ -8,7 +8,7 @@
       "destination": "https://konvertit-production.up.railway.app/api/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|_vercel/).*)",
       "destination": "/index.html"
     }
   ]
