@@ -9,7 +9,9 @@ Endpoints used:
 - Walmart: GET https://api.scraperapi.com/structured/walmart/search
 """
 
+import json
 import logging
+import os
 import re
 from dataclasses import asdict, dataclass
 from urllib.parse import unquote
@@ -19,6 +21,21 @@ import httpx
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# ── Load VeRO brands for discovery filtering ─────────────────────────
+_VERO_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "vero_brands.json")
+with open(_VERO_PATH, "r") as _f:
+    _VERO_BRANDS_LOWER: set[str] = {b.lower() for b in json.load(_f)}
+
+
+def _contains_vero_brand(product_name: str) -> bool:
+    """Return True if the product name contains a VeRO-protected brand."""
+    name_lower = product_name.lower()
+    for brand in _VERO_BRANDS_LOWER:
+        # Match the brand as a whole word (or at a word boundary) in the title
+        if re.search(rf"\b{re.escape(brand)}\b", name_lower):
+            return True
+    return False
 
 AMAZON_SEARCH_URL = "https://api.scraperapi.com/structured/amazon/search"
 WALMART_SEARCH_URL = "https://api.scraperapi.com/structured/walmart/search"
@@ -175,6 +192,7 @@ class DiscoveryService:
 
         products: list[DiscoveryProduct] = []
         skipped = 0
+        vero_filtered = 0
         for item in data.get("results", []):
             # Normalize the URL to a clean /dp/{ASIN} form.
             # Sponsored ads return /sspa/click?... or aax-* tracking URLs
@@ -188,6 +206,12 @@ class DiscoveryService:
                 )
                 continue
 
+            # Filter out VeRO-protected brands from discovery results
+            product_name = item.get("name", "")
+            if _contains_vero_brand(product_name):
+                vero_filtered += 1
+                continue
+
             price = item.get("price")
             if price is None:
                 # Try parsing from price_string (e.g. "$29.99")
@@ -199,7 +223,7 @@ class DiscoveryService:
 
             products.append(
                 DiscoveryProduct(
-                    name=item.get("name", ""),
+                    name=product_name,
                     price=price,
                     price_symbol=item.get("price_symbol", "$"),
                     image=item.get("image", ""),
@@ -218,6 +242,10 @@ class DiscoveryService:
             logger.info(
                 f"Amazon search: skipped {skipped} products with "
                 f"un-normalizable URLs (sponsored/ad tracking)"
+            )
+        if vero_filtered:
+            logger.info(
+                f"Amazon search: filtered {vero_filtered} VeRO-protected products"
             )
 
         # Determine total pages from pagination data
@@ -255,7 +283,14 @@ class DiscoveryService:
         data = response.json()
 
         products: list[DiscoveryProduct] = []
+        vero_filtered = 0
         for item in data.get("items", []):
+            # Filter out VeRO-protected brands from discovery results
+            product_name = item.get("name", "")
+            if _contains_vero_brand(product_name):
+                vero_filtered += 1
+                continue
+
             rating = item.get("rating") or {}
             price = item.get("price")
             if price is None:
@@ -263,7 +298,7 @@ class DiscoveryService:
 
             products.append(
                 DiscoveryProduct(
-                    name=item.get("name", ""),
+                    name=product_name,
                     price=float(price),
                     price_symbol="$",
                     image=item.get("image", ""),
@@ -281,6 +316,10 @@ class DiscoveryService:
         meta = data.get("meta", {})
         total_pages = meta.get("pages")
 
+        if vero_filtered:
+            logger.info(
+                f"Walmart search: filtered {vero_filtered} VeRO-protected products"
+            )
         logger.info(
             f"Walmart search: query={query!r} page={page} results={len(products)}"
         )
