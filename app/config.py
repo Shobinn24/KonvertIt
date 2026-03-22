@@ -115,11 +115,15 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = ""
     stripe_enterprise_price_id: str = ""
 
-    # ─── Email / SMTP ──────────────────────────────────────────
+    # ─── Email ────────────────────────────────────────────────
+    # Resend (preferred) — just set the API key
+    resend_api_key: str = ""
+    # SMTP fallback
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+    # Shared sender config (used by both Resend and SMTP)
     smtp_from_email: str = "noreply@konvertit.net"
     smtp_from_name: str = "KonvertIt"
     smtp_use_tls: bool = True

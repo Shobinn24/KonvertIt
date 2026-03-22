@@ -1,8 +1,11 @@
 """
 Email sending service.
 
-Sends transactional emails via SMTP. If SMTP is not configured,
-emails are logged to console (dev-friendly fallback).
+Supports two providers:
+1. Resend (preferred) — set RESEND_API_KEY env var
+2. SMTP — set SMTP_HOST env var
+
+If neither is configured, emails are logged to console (dev fallback).
 """
 
 import asyncio
@@ -11,37 +14,60 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import httpx
+
 from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
+RESEND_API_URL = "https://api.resend.com/emails"
+
 
 class EmailService:
-    """Sends transactional emails via SMTP (or logs in dev mode)."""
+    """Sends transactional emails via Resend, SMTP, or dev-mode logging."""
 
     def __init__(self, settings: Settings | None = None):
         self._settings = settings or get_settings()
 
     @property
-    def _is_configured(self) -> bool:
-        return bool(self._settings.smtp_host)
+    def _provider(self) -> str:
+        if self._settings.resend_api_key:
+            return "resend"
+        if self._settings.smtp_host:
+            return "smtp"
+        return "dev"
 
-    def _build_message(
-        self,
-        to_email: str,
-        subject: str,
-        html_body: str,
-    ) -> MIMEMultipart:
+    # ─── Resend (HTTP API) ───────────────────────────────────
+
+    async def _send_resend(self, to_email: str, subject: str, html_body: str) -> None:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                RESEND_API_URL,
+                headers={
+                    "Authorization": f"Bearer {self._settings.resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": f"{self._settings.smtp_from_name} <{self._settings.smtp_from_email}>",
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_body,
+                },
+            )
+            if resp.status_code >= 400:
+                raise Exception(f"Resend API error {resp.status_code}: {resp.text}")
+
+    # ─── SMTP ────────────────────────────────────────────────
+
+    def _send_smtp(self, to_email: str, subject: str, html_body: str) -> None:
+        """Blocking SMTP send — run in a thread."""
+        s = self._settings
         msg = MIMEMultipart("alternative")
-        msg["From"] = f"{self._settings.smtp_from_name} <{self._settings.smtp_from_email}>"
+        msg["From"] = f"{s.smtp_from_name} <{s.smtp_from_email}>"
         msg["To"] = to_email
         msg["Subject"] = subject
         msg.attach(MIMEText(html_body, "html"))
-        return msg
 
-    def _send_smtp(self, to_email: str, msg: MIMEMultipart) -> None:
-        """Blocking SMTP send — run in a thread."""
-        s = self._settings
         if s.smtp_use_tls:
             server = smtplib.SMTP(s.smtp_host, s.smtp_port)
             server.starttls()
@@ -53,25 +79,34 @@ class EmailService:
         server.sendmail(s.smtp_from_email, to_email, msg.as_string())
         server.quit()
 
+    # ─── Send (unified) ──────────────────────────────────────
+
     async def send(self, to_email: str, subject: str, html_body: str) -> bool:
         """
-        Send an email. Returns True on success.
-        If SMTP is not configured, logs the email and returns True.
+        Send an email via the configured provider.
+        Falls back to console logging if no provider is set.
         """
-        if not self._is_configured:
+        provider = self._provider
+
+        if provider == "dev":
             logger.info(
                 f"[EMAIL-DEV] To: {to_email} | Subject: {subject}\n{html_body[:500]}"
             )
             return True
 
         try:
-            msg = self._build_message(to_email, subject, html_body)
-            await asyncio.to_thread(self._send_smtp, to_email, msg)
-            logger.info(f"Email sent to {to_email}: {subject}")
+            if provider == "resend":
+                await self._send_resend(to_email, subject, html_body)
+            else:
+                await asyncio.to_thread(self._send_smtp, to_email, subject, html_body)
+
+            logger.info(f"Email sent via {provider} to {to_email}: {subject}")
             return True
         except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {e}")
+            logger.error(f"Failed to send email via {provider} to {to_email}: {e}")
             return False
+
+    # ─── Verification Email ──────────────────────────────────
 
     async def send_verification_email(
         self,

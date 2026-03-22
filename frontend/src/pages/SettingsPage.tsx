@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { TopBar } from "@/components/layout/TopBar";
 import { EbayConnectionCard } from "@/components/settings/EbayConnectionCard";
 import { AccountForm } from "@/components/settings/AccountForm";
@@ -13,6 +14,16 @@ export function SettingsPage() {
         <AccountForm />
         <BillingCard />
         <PreferencesForm />
+
+        {/* Admin access — blends into the footer, only visible if you know to look */}
+        <div className="pt-4 text-center">
+          <Link
+            to="/admin"
+            className="text-xs text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+          >
+            System
+          </Link>
+        </div>
       </div>
     </>
   );
