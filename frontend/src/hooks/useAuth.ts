@@ -12,8 +12,18 @@ export function useLoginMutation() {
 
 export function useRegisterMutation() {
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      authService.register(email, password),
+    mutationFn: (params: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+      city?: string;
+      state?: string;
+      country?: string;
+      postalCode?: string;
+      recaptchaToken?: string | null;
+      website?: string;
+    }) => authService.register(params),
   });
 }
 

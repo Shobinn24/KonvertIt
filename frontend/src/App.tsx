@@ -14,6 +14,8 @@ import { CheckoutSuccessPage } from "@/pages/CheckoutSuccessPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { PrivacyPage } from "@/pages/PrivacyPage";
 import { RefundPolicyPage } from "@/pages/RefundPolicyPage";
+import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
+import { AdminPage } from "@/pages/AdminPage";
 
 const router = createBrowserRouter([
   {
@@ -39,6 +41,14 @@ const router = createBrowserRouter([
   {
     path: "/refund-policy",
     element: <RefundPolicyPage />,
+  },
+  {
+    path: "/verify-email",
+    element: <VerifyEmailPage />,
+  },
+  {
+    path: "/admin",
+    element: <AdminPage />,
   },
   {
     element: <ProtectedRoute />,

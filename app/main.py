@@ -155,7 +155,7 @@ def create_app() -> FastAPI:
     )
 
     # Register API routers (triggers database module import)
-    from app.api.v1 import auth, billing, conversions, discovery, listings, price_history, products, users, webhooks, ws
+    from app.api.v1 import admin, auth, billing, conversions, discovery, listings, price_history, products, users, webhooks, ws
     from app.db.database import get_db
 
     # Enhanced health check with DB and Redis probes
@@ -174,6 +174,7 @@ def create_app() -> FastAPI:
             redis_client=redis,
         )
 
+    app.include_router(admin.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(users.router, prefix="/api/v1")
     app.include_router(conversions.router, prefix="/api/v1")

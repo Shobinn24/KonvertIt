@@ -64,6 +64,8 @@ class BillingService:
         self,
         user_id: uuid.UUID,
         email: str,
+        name: str = "",
+        address: dict | None = None,
     ) -> str:
         """
         Get existing Stripe customer ID or create a new one.
@@ -78,11 +80,20 @@ class BillingService:
         if user.stripe_customer_id:
             return user.stripe_customer_id
 
+        # Build Stripe customer params
+        create_params: dict = {
+            "email": email,
+            "metadata": {"konvertit_user_id": str(user_id)},
+        }
+        if name:
+            create_params["name"] = name
+        if address:
+            create_params["address"] = address
+
         # Create Stripe customer (sync SDK call → run in thread to avoid blocking event loop)
         customer = await asyncio.to_thread(
             stripe.Customer.create,
-            email=email,
-            metadata={"konvertit_user_id": str(user_id)},
+            **create_params,
         )
 
         await self._repo.update(user_id, stripe_customer_id=customer.id)

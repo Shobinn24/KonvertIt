@@ -10,12 +10,30 @@ export async function login(
 }
 
 export async function register(
-  email: string,
-  password: string,
+  params: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+    recaptchaToken?: string | null;
+    website?: string;
+  },
 ): Promise<AuthResponse> {
   const res = await api.post<AuthResponse>("/auth/register", {
-    email,
-    password,
+    first_name: params.firstName,
+    last_name: params.lastName,
+    email: params.email,
+    password: params.password,
+    city: params.city ?? "",
+    state: params.state ?? "",
+    country: params.country ?? "US",
+    postal_code: params.postalCode ?? "",
+    recaptcha_token: params.recaptchaToken ?? undefined,
+    website: params.website ?? "",
   });
   return res.data;
 }

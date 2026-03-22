@@ -80,27 +80,35 @@ class UserService:
 
     # ─── Registration ────────────────────────────────────────
 
-    async def register(self, email: str, password: str) -> dict:
+    async def register(
+        self,
+        email: str,
+        password: str,
+        first_name: str = "",
+        last_name: str = "",
+        city: str = "",
+        state: str = "",
+        country: str = "US",
+        postal_code: str = "",
+    ) -> dict:
         """
         Register a new user account.
 
         Args:
             email: User's email address (will be lowercased).
             password: Plain-text password (must be >= 8 chars).
+            first_name: User's first name.
+            last_name: User's last name.
 
         Returns:
-            Dict with user info and JWT tokens:
-            {
-                "user": {"id", "email", "tier", "created_at"},
-                "access_token": str,
-                "refresh_token": str,
-                "token_type": "bearer",
-            }
+            Dict with user info and JWT tokens.
 
         Raises:
             RegistrationError: If email is taken or validation fails.
         """
         email = email.strip().lower()
+        first_name = first_name.strip()
+        last_name = last_name.strip()
 
         # Validate
         if not email or "@" not in email:
@@ -109,6 +117,10 @@ class UserService:
             raise RegistrationError(
                 "Password must be at least 8 characters"
             )
+        if not first_name:
+            raise RegistrationError("First name is required")
+        if not last_name:
+            raise RegistrationError("Last name is required")
 
         # Check uniqueness
         if await self._repo.email_exists(email):
@@ -123,6 +135,12 @@ class UserService:
         user = await self._repo.create(
             email=email,
             password_hash=password_hash,
+            first_name=first_name,
+            last_name=last_name,
+            city=city,
+            state=state,
+            country=country or "US",
+            postal_code=postal_code,
             tier="free",
             is_active=True,
         )
@@ -405,8 +423,11 @@ class UserService:
         return {
             "id": str(user.id),
             "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
             "tier": user.tier,
             "is_active": user.is_active,
+            "email_verified": user.email_verified,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login": user.last_login.isoformat() if user.last_login else None,
         }

@@ -13,18 +13,21 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.encryption import encrypt
+from app.core.recaptcha import verify_recaptcha
+from app.services.email_service import EmailService
 from app.db.database import get_db
 from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
 from app.db.repositories.user_repo import UserRepository
 from app.listers.ebay_auth import EbayAuth
 from app.middleware.auth_middleware import get_current_user
+from app.middleware.auth_rate_limiter import check_auth_rate_limit
 from app.middleware.rate_limiter import get_redis
 from app.services.billing_service import BillingService
 from app.services.user_service import (
@@ -44,8 +47,18 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 class RegisterRequest(BaseModel):
     """User registration request."""
+    first_name: str = Field(..., min_length=1, max_length=100, description="User's first name")
+    last_name: str = Field(..., min_length=1, max_length=100, description="User's last name")
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
+    # Location (optional, passed to Stripe)
+    city: str = Field("", max_length=100)
+    state: str = Field("", max_length=100)
+    country: str = Field("US", max_length=2, description="ISO 3166-1 alpha-2 country code")
+    postal_code: str = Field("", max_length=20)
+    recaptcha_token: str | None = Field(None, description="reCAPTCHA v3 response token")
+    # Honeypot field — must be empty (bots auto-fill hidden fields)
+    website: str = Field("", max_length=500, description="Leave empty (anti-spam)")
 
 
 class LoginRequest(BaseModel):
@@ -104,6 +117,7 @@ def _build_user_service(db: AsyncSession) -> UserService:
 )
 async def register(
     body: RegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -112,12 +126,36 @@ async def register(
     Returns JWT access and refresh tokens on success.
     The access token expires in 15 minutes; the refresh token in 7 days.
     """
+    # IP-based rate limiting for registration (5 per 15 min)
+    await check_auth_rate_limit(request, action="register")
+
+    # Honeypot check — bots fill hidden fields, real users leave it empty
+    if body.website:
+        logger.warning(f"Honeypot triggered on registration for email={body.email}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration failed. Please try again.",
+        )
+
+    # Verify reCAPTCHA token (skipped if not configured)
+    if not await verify_recaptcha(body.recaptcha_token or "", expected_action="register"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="reCAPTCHA verification failed. Please try again.",
+        )
+
     service = _build_user_service(db)
 
     try:
         result = await service.register(
             email=body.email,
             password=body.password,
+            first_name=body.first_name.strip(),
+            last_name=body.last_name.strip(),
+            city=body.city.strip(),
+            state=body.state.strip(),
+            country=body.country.strip().upper() or "US",
+            postal_code=body.postal_code.strip(),
         )
     except RegistrationError as e:
         raise HTTPException(
@@ -130,13 +168,53 @@ async def register(
     # still succeeds — the customer will be created on checkout.
     try:
         billing = BillingService(user_repo=UserRepository(db))
+        # Build Stripe address from location fields (only include non-empty)
+        stripe_address = {}
+        if body.city.strip():
+            stripe_address["city"] = body.city.strip()
+        if body.state.strip():
+            stripe_address["state"] = body.state.strip()
+        if body.country.strip():
+            stripe_address["country"] = body.country.strip().upper()
+        if body.postal_code.strip():
+            stripe_address["postal_code"] = body.postal_code.strip()
+
         await billing.get_or_create_customer(
             user_id=uuid.UUID(result["user"]["id"]),
             email=result["user"]["email"],
+            name=f"{body.first_name.strip()} {body.last_name.strip()}".strip(),
+            address=stripe_address if stripe_address else None,
         )
     except Exception:
         logger.warning(
             "Stripe customer creation failed for user %s — will retry on checkout",
+            result["user"]["id"],
+        )
+
+    # Send verification email (best-effort)
+    try:
+        verification_token = str(uuid.uuid4())
+        user_repo = UserRepository(db)
+        await user_repo.update(
+            uuid.UUID(result["user"]["id"]),
+            email_verification_token=verification_token,
+            email_verification_sent_at=datetime.now(UTC),
+        )
+        settings = get_settings()
+        frontend_url = settings.frontend_base_url or (
+            settings.cors_allowed_origins.split(",")[0].strip()
+            if settings.cors_allowed_origins else "http://localhost:5173"
+        )
+        verification_url = f"{frontend_url}/verify-email?token={verification_token}"
+        email_svc = EmailService()
+        await email_svc.send_verification_email(
+            to_email=result["user"]["email"],
+            first_name=body.first_name.strip(),
+            verification_url=verification_url,
+        )
+    except Exception:
+        logger.warning(
+            "Verification email failed for user %s",
             result["user"]["id"],
         )
 
@@ -150,6 +228,7 @@ async def register(
 )
 async def login(
     body: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -157,6 +236,9 @@ async def login(
 
     Returns JWT access and refresh tokens on success.
     """
+    # IP-based rate limiting for login (10 per 15 min)
+    await check_auth_rate_limit(request, action="login")
+
     service = _build_user_service(db)
 
     try:
@@ -349,3 +431,121 @@ async def ebay_status(
     if creds:
         return EbayStatusResponse(connected=True, store_name=creds[0].store_name or "")
     return EbayStatusResponse(connected=False)
+
+
+# ─── Email Verification Endpoints ────────────────────────────
+
+
+class VerifyEmailRequest(BaseModel):
+    """Email verification request."""
+    token: str = Field(..., min_length=1)
+
+
+class ResendVerificationResponse(BaseModel):
+    """Response for resend verification."""
+    message: str
+
+
+@router.post(
+    "/verify-email",
+    summary="Verify email address",
+)
+async def verify_email(
+    body: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Verify a user's email address using the token sent to their inbox.
+
+    The token is a UUID generated during registration and stored on the user record.
+    Tokens expire after 24 hours.
+    """
+    user_repo = UserRepository(db)
+
+    # Find user by verification token
+    from sqlalchemy import select
+    from app.db.models import User
+
+    stmt = select(User).where(User.email_verification_token == body.token)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token.",
+        )
+
+    # Check token expiry (24 hours)
+    if user.email_verification_sent_at:
+        elapsed = datetime.now(UTC) - user.email_verification_sent_at
+        if elapsed > timedelta(hours=24):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Verification token has expired. Please request a new one.",
+            )
+
+    # Mark as verified
+    user.email_verified = True
+    user.email_verification_token = None
+    await db.flush()
+
+    logger.info(f"Email verified for user {user.id}")
+    return {"message": "Email verified successfully."}
+
+
+@router.post(
+    "/resend-verification",
+    response_model=ResendVerificationResponse,
+    summary="Resend verification email",
+)
+async def resend_verification(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Resend the email verification link.
+
+    Rate-limited to once per 2 minutes to prevent abuse.
+    """
+    user_repo = UserRepository(db)
+    db_user = await user_repo.get_by_id(uuid.UUID(user["sub"]))
+
+    if db_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if db_user.email_verified:
+        return ResendVerificationResponse(message="Email is already verified.")
+
+    # Rate limit: 2 minutes between resends
+    if db_user.email_verification_sent_at:
+        elapsed = datetime.now(UTC) - db_user.email_verification_sent_at
+        if elapsed < timedelta(minutes=2):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Please wait before requesting another verification email.",
+            )
+
+    # Generate new token and send
+    verification_token = str(uuid.uuid4())
+    await user_repo.update(
+        db_user.id,
+        email_verification_token=verification_token,
+        email_verification_sent_at=datetime.now(UTC),
+    )
+
+    settings = get_settings()
+    frontend_url = settings.frontend_base_url or (
+        settings.cors_allowed_origins.split(",")[0].strip()
+        if settings.cors_allowed_origins else "http://localhost:5173"
+    )
+    verification_url = f"{frontend_url}/verify-email?token={verification_token}"
+
+    email_svc = EmailService()
+    await email_svc.send_verification_email(
+        to_email=db_user.email,
+        first_name=db_user.first_name or "there",
+        verification_url=verification_url,
+    )
+
+    return ResendVerificationResponse(message="Verification email sent.")

@@ -115,6 +115,20 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = ""
     stripe_enterprise_price_id: str = ""
 
+    # ─── Email / SMTP ──────────────────────────────────────────
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@konvertit.net"
+    smtp_from_name: str = "KonvertIt"
+    smtp_use_tls: bool = True
+
+    # ─── reCAPTCHA ─────────────────────────────────────────────
+    recaptcha_secret_key: str = ""  # Google reCAPTCHA v3 secret key
+    recaptcha_site_key: str = ""  # Google reCAPTCHA v3 site key (passed to frontend)
+    recaptcha_min_score: float = 0.5  # Minimum score to accept (0.0–1.0)
+
     # ─── CORS ────────────────────────────────────────────────
     cors_allowed_origins: str = ""  # Comma-separated origins for production
     frontend_base_url: str = ""  # Explicit frontend URL for OAuth redirects (overrides CORS-based derivation)

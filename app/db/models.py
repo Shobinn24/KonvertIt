@@ -54,6 +54,8 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, default=new_uuid
     )
     email: Mapped[str] = mapped_column(Unicode(320), unique=True, nullable=False, index=True)
+    first_name: Mapped[str] = mapped_column(Unicode(100), default="", nullable=False)
+    last_name: Mapped[str] = mapped_column(Unicode(100), default="", nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     tier: Mapped[str] = mapped_column(
         SAEnum("free", "pro", "enterprise", name="user_tier"),
@@ -61,6 +63,11 @@ class User(Base):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    email_verification_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_verification_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
@@ -68,6 +75,12 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
+
+    # Location (for Stripe tax / address)
+    city: Mapped[str] = mapped_column(Unicode(100), default="", nullable=False)
+    state: Mapped[str] = mapped_column(Unicode(100), default="", nullable=False)
+    country: Mapped[str] = mapped_column(String(2), default="US", nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(20), default="", nullable=False)
 
     # Stripe Billing
     stripe_customer_id: Mapped[str | None] = mapped_column(

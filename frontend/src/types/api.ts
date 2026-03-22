@@ -5,8 +5,11 @@ import { z } from "zod";
 export interface UserProfile {
   id: string;
   email: string;
+  first_name: string;
+  last_name: string;
   tier: "free" | "pro" | "enterprise";
   is_active: boolean;
+  email_verified: boolean;
   created_at: string | null;
   last_login: string | null;
 }
@@ -231,9 +234,15 @@ export type LoginFormData = z.infer<typeof loginSchema>;
 
 export const registerSchema = z
   .object({
+    firstName: z.string().min(1, "First name is required").max(100),
+    lastName: z.string().min(1, "Last name is required").max(100),
     email: z.string().email("Invalid email address"),
     password: z.string().min(8, "Password must be at least 8 characters").max(128),
     confirmPassword: z.string(),
+    city: z.string().max(100).optional().default(""),
+    state: z.string().max(100).optional().default(""),
+    country: z.string().max(2).optional().default("US"),
+    postalCode: z.string().max(20).optional().default(""),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",

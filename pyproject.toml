@@ -14,8 +14,8 @@ authors = [
 ]
 
 [project.urls]
-Homepage = "https://konvertit.com"
-Documentation = "https://docs.konvertit.com"
+Homepage = "https://konvertit.net"
+Documentation = "https://docs.konvertit.net"
 Repository = "https://github.com/eclarx/konvertit"
 Issues = "https://github.com/eclarx/konvertit/issues"
 Changelog = "https://github.com/eclarx/konvertit/blob/main/CHANGELOG.md"

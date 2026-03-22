@@ -35,8 +35,11 @@ class UserProfileResponse(BaseModel):
     """User profile response."""
     id: str
     email: str
+    first_name: str = ""
+    last_name: str = ""
     tier: str
     is_active: bool
+    email_verified: bool = False
     created_at: str | None = None
     last_login: str | None = None
 
@@ -90,8 +93,11 @@ async def get_profile(
     return UserProfileResponse(
         id=str(db_user.id),
         email=db_user.email,
+        first_name=db_user.first_name,
+        last_name=db_user.last_name,
         tier=db_user.tier,
         is_active=db_user.is_active,
+        email_verified=db_user.email_verified,
         created_at=db_user.created_at.isoformat() if db_user.created_at else None,
         last_login=db_user.last_login.isoformat() if db_user.last_login else None,
     )
@@ -136,8 +142,11 @@ async def update_profile(
     return UserProfileResponse(
         id=str(updated.id),
         email=updated.email,
+        first_name=updated.first_name,
+        last_name=updated.last_name,
         tier=updated.tier,
         is_active=updated.is_active,
+        email_verified=updated.email_verified,
         created_at=updated.created_at.isoformat() if updated.created_at else None,
         last_login=updated.last_login.isoformat() if updated.last_login else None,
     )
@@ -227,8 +236,11 @@ async def admin_set_tier(
     return UserProfileResponse(
         id=str(updated.id),
         email=updated.email,
+        first_name=updated.first_name,
+        last_name=updated.last_name,
         tier=updated.tier,
         is_active=updated.is_active,
+        email_verified=updated.email_verified,
         created_at=updated.created_at.isoformat() if updated.created_at else None,
         last_login=updated.last_login.isoformat() if updated.last_login else None,
     )
