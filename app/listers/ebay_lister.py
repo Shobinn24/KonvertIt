@@ -364,7 +364,7 @@ class EbayLister(IListable):
                     else:
                         logger.warning(f"Created {name} policy but no ID returned")
             except Exception as e:
-                logger.warning(f"Failed to create default {name} policy: {e}")
+                logger.error(f"Failed to create default {name} policy: {e}", exc_info=True)
 
         # Ensure fulfillment policy has shipFrom (required for Item.Country)
         await self._ensure_fulfillment_shipfrom()
@@ -396,15 +396,13 @@ class EbayLister(IListable):
 
             logger.info(f"Adding shipFrom to fulfillment policy {self._fulfillment_policy_id}")
 
-            # Only forward writable fields from the GET response to avoid
-            # sending read-only fields (fulfillmentPolicyId, warnings, etc.)
-            # that cause eBay to reject the PUT.
-            writable_keys = {
-                "name", "marketplaceId", "categoryTypes", "handlingTime",
-                "shippingOptions", "shipToLocations", "globalShipping",
-                "freightShipping",
+            # Strip read-only fields from the GET response before PUT.
+            # Using a blocklist instead of allowlist so we don't accidentally
+            # drop fields the user has set (which causes eBay to reject the PUT).
+            readonly_keys = {
+                "fulfillmentPolicyId", "warnings", "errors",
             }
-            update_payload = {k: v for k, v in policy.items() if k in writable_keys}
+            update_payload = {k: v for k, v in policy.items() if k not in readonly_keys}
             update_payload["shipFrom"] = {
                 "country": "US",
                 "postalCode": "95125",
@@ -418,7 +416,7 @@ class EbayLister(IListable):
             )
             logger.info("Successfully added shipFrom to fulfillment policy")
         except Exception as e:
-            logger.warning(f"Failed to update fulfillment policy with shipFrom: {e}")
+            logger.error(f"Failed to update fulfillment policy with shipFrom: {e}", exc_info=True)
 
     def _default_policy_payload(self, policy_type: str) -> dict:
         """Build a default business policy payload for auto-creation."""
@@ -440,15 +438,19 @@ class EbayLister(IListable):
                                 "sortOrder": 1,
                                 "shippingCarrierCode": "USPS",
                                 "shippingServiceCode": "USPSPriority",
-                                "shippingCost": {"value": "5.99", "currency": "USD"},
-                                "additionalShippingCost": {"value": "3.99", "currency": "USD"},
-                                "freeShipping": False,
+                                "shippingCost": {"value": "0.00", "currency": "USD"},
+                                "additionalShippingCost": {"value": "0.00", "currency": "USD"},
+                                "freeShipping": True,
                                 "buyerResponsibleForShipping": False,
                                 "buyerResponsibleForPickup": False,
                             }
                         ],
                     }
                 ],
+                "shipFrom": {
+                    "country": "US",
+                    "postalCode": "95125",
+                },
                 "globalShipping": False,
             }
         elif policy_type == "payment":
@@ -457,6 +459,9 @@ class EbayLister(IListable):
                 "marketplaceId": self._marketplace_id,
                 "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
                 "immediatePay": True,
+                "paymentMethods": [
+                    {"paymentMethodType": "WALLET", "recipientAccountReference": {"referenceType": "PAYPAL_EMAIL"}},
+                ],
             }
         elif policy_type == "return":
             return {
