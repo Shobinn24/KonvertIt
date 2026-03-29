@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
+  Sparkles,
   ArrowRightLeft,
   List,
   Settings,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/discover", icon: Search, label: "Discover" },
+  { to: "/auto-discover", icon: Sparkles, label: "Auto-Discover" },
   { to: "/convert", icon: ArrowRightLeft, label: "Convert" },
   { to: "/listings", icon: List, label: "Listings" },
   { to: "/settings", icon: Settings, label: "Settings" },

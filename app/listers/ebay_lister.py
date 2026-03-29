@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 import httpx
 
-from app.core.exceptions import EbayAuthError, ListingError
+from app.core.exceptions import DuplicateListingError, EbayAuthError, ListingError
 from app.core.interfaces import IListable
 from app.core.models import ListingDraft, ListingResult, ListingStatus
 
@@ -679,25 +679,16 @@ class EbayLister(IListable):
                 logger.info(f"[{cid}] Offer created: {offer_id}")
             except ListingError as e:
                 if "409" in str(e) or "already exists" in str(e).lower():
-                    # Offer already exists for this SKU — fetch and reuse it
-                    logger.info(f"Offer already exists for SKU {sku}, fetching existing offer")
-                    existing = await self._request(
-                        "GET",
-                        f"{INVENTORY_API}/offer?sku={encoded_sku}",
-                        expected_status=(200,),
+                    # Offer already exists for this SKU — raise duplicate error
+                    # instead of silently overwriting the existing listing
+                    logger.warning(
+                        f"[{cid}] Duplicate listing detected: offer already exists "
+                        f"for SKU {sku}. Blocking to prevent overwrite."
                     )
-                    offers = existing.get("offers", []) if existing else []
-                    if not offers:
-                        raise
-                    offer_id = offers[0].get("offerId", "")
-                    # Update the existing offer with our payload
-                    await self._request(
-                        "PUT",
-                        f"{INVENTORY_API}/offer/{offer_id}",
-                        json_data=offer_payload,
-                        expected_status=(200, 204),
+                    raise DuplicateListingError(
+                        product_title=draft.title,
+                        ebay_item_id=None,  # We don't have the item ID yet
                     )
-                    logger.info(f"[{cid}] Reused and updated existing offer: {offer_id}")
                 else:
                     raise
 

@@ -102,7 +102,26 @@ export function SingleConvert({ onResult, initialUrl = "" }: SingleConvertProps)
           </div>
         </div>
 
-        <ErrorAlert error={mutation.error} />
+        {/* Duplicate listing error — distinct from generic errors */}
+        {mutation.error &&
+          (mutation.error as any)?.response?.status === 409 ? (
+          <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 p-4">
+            <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+              Already Listed
+            </p>
+            <p className="text-sm text-yellow-600 dark:text-yellow-500 mt-1">
+              {(mutation.error as any)?.response?.data?.detail?.message ||
+                "This product already has an active listing on your eBay store."}
+            </p>
+            {(mutation.error as any)?.response?.data?.detail?.ebay_item_id && (
+              <p className="text-xs text-muted-foreground mt-2">
+                eBay Item #{(mutation.error as any).response.data.detail.ebay_item_id}
+              </p>
+            )}
+          </div>
+        ) : (
+          <ErrorAlert error={mutation.error} />
+        )}
       </CardContent>
     </Card>
   );

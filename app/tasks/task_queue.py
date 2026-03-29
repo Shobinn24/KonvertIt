@@ -51,6 +51,7 @@ class WorkerSettings:
         "app.tasks.scrape_tasks.convert_product_task",
         "app.tasks.scrape_tasks.bulk_convert_task",
         "app.tasks.monitor_tasks.monitor_prices_task",
+        "app.tasks.discovery_tasks.auto_discover_task",
     ]
 
     on_startup = "app.tasks.scrape_tasks.startup"

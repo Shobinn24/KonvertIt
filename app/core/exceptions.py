@@ -89,6 +89,24 @@ class EbayAuthError(ListingError):
     pass
 
 
+class DuplicateListingError(ListingError):
+    """Product already has an active or draft listing on the target marketplace."""
+
+    def __init__(
+        self,
+        product_title: str,
+        ebay_item_id: str | None = None,
+        listing_id: str | None = None,
+        **kwargs,
+    ):
+        self.product_title = product_title
+        self.ebay_item_id = ebay_item_id
+        self.listing_id = listing_id
+        item_ref = f" (eBay #{ebay_item_id})" if ebay_item_id else ""
+        message = f"Duplicate listing: '{product_title}' already has an active listing{item_ref}"
+        super().__init__(message=message, **kwargs)
+
+
 # ─── Resilience Errors ────────────────────────────────────────
 
 
