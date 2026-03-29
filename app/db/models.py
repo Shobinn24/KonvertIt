@@ -246,6 +246,9 @@ class Listing(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
     ebay_item_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     title: Mapped[str] = mapped_column(Unicode(80), nullable=False)
     description_html: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -271,10 +274,17 @@ class Listing(Base):
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="listings")
+    product: Mapped["Product | None"] = relationship(foreign_keys=[product_id])
     conversion: Mapped["Conversion | None"] = relationship(back_populates="listing")
 
     __table_args__ = (
         Index("ix_listings_user_status", "user_id", "status"),
+        Index(
+            "ix_listings_user_product_active_dedup",
+            "user_id", "product_id",
+            unique=True,
+            postgresql_where="status IN ('draft', 'active')",
+        ),
     )
 
 
@@ -303,6 +313,77 @@ class PriceHistory(Base):
 
     __table_args__ = (
         Index("ix_price_history_product_time", "product_id", "recorded_at"),
+    )
+
+
+# ─── Auto-Discovery ─────────────────────────────────────────
+
+
+class AutoDiscoveryConfig(Base):
+    """Per-user auto-discovery settings (one config per user)."""
+
+    __tablename__ = "auto_discovery_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_publish: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    min_margin_pct: Mapped[float] = mapped_column(Float, default=0.20, nullable=False)
+    max_daily_items: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    marketplaces: Mapped[list] = mapped_column(
+        JSON, default=lambda: ["amazon"], nullable=False
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    items_found_today: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+
+
+class AutoDiscoveryRun(Base):
+    """Tracks each auto-discovery execution for audit and history."""
+
+    __tablename__ = "auto_discovery_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=new_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    data_source: Mapped[str] = mapped_column(
+        String(50), default="history_fallback", nullable=False
+    )
+    queries_searched: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    products_evaluated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    products_converted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    products_skipped_duplicate: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    products_skipped_compliance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    products_skipped_margin: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    errors: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    run_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+
+    __table_args__ = (
+        Index("ix_auto_discovery_runs_user_id", "user_id"),
+        Index("ix_auto_discovery_runs_run_at", "run_at"),
     )
 
 

@@ -19,16 +19,15 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel, Field
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.converters.ebay_converter import EbayConverter
 from app.core.encryption import decrypt, encrypt
-from app.core.exceptions import ConversionError, KonvertItError
+from app.core.exceptions import ConversionError, DuplicateListingError, KonvertItError
 from app.db.database import get_db
 from app.db.mappers import conversion_from_result, listing_from_draft, product_from_scraped
 from app.db.repositories.conversion_repo import ConversionRepository
@@ -225,14 +224,28 @@ async def _persist_conversion_result(
             db.add(product_orm)
             await db.flush()
 
-        # 2. Save Listing if draft + listing result exist
+        # 2. Duplicate check — block if product already has an active listing
+        listing_repo = ListingRepository(db)
+        existing_listing = await listing_repo.has_active_listing_for_product(
+            user_id=uid,
+            product_id=product_orm.id,
+        )
+        if existing_listing:
+            raise DuplicateListingError(
+                product_title=product_orm.title,
+                ebay_item_id=existing_listing.ebay_item_id,
+                listing_id=str(existing_listing.id),
+            )
+
+        # 3. Save Listing if draft + listing result exist
         listing_orm = None
         if result.draft and result.listing:
             listing_orm = listing_from_draft(result.draft, uid, result.listing)
+            listing_orm.product_id = product_orm.id
             db.add(listing_orm)
             await db.flush()
 
-        # 3. Save Conversion record linking product → listing
+        # 4. Save Conversion record linking product → listing
         status = result.status.value
         conversion_orm = conversion_from_result(
             user_id=uid,
@@ -244,12 +257,20 @@ async def _persist_conversion_result(
         db.add(conversion_orm)
         await db.commit()
         logger.info(f"Persisted conversion for {result.url} (status={status})")
+    except DuplicateListingError:
+        # Let duplicate errors propagate — the endpoint returns HTTP 409
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     except Exception as e:
         logger.error(f"Failed to persist conversion for {result.url}: {e}", exc_info=True)
         try:
             await db.rollback()
         except Exception:
             pass
+        raise
 
 
 async def _check_listing_cap(
@@ -339,6 +360,16 @@ async def create_conversion(
 
             return result.to_dict()
 
+    except DuplicateListingError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "DUPLICATE_LISTING",
+                "message": e.message,
+                "ebay_item_id": e.ebay_item_id,
+                "listing_id": e.listing_id,
+            },
+        ) from e
     except ConversionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except KonvertItError as e:
@@ -683,7 +714,6 @@ async def debug_ebay(
     db: AsyncSession = Depends(get_db),
 ):
     """Temporary diagnostic endpoint to check eBay API state."""
-    import httpx
 
     user_id = user["sub"]
     lister = await _get_ebay_lister(user_id, db)

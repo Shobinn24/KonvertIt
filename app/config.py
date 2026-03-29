@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     price_monitor_interval_hours: int = 6
     price_monitor_max_products: int = 200
 
+    # ─── Auto-Discovery ─────────────────────────────────────
+    auto_discovery_interval_hours: int = 24
+    auto_discovery_max_queries_per_user: int = 5
+    auto_discovery_max_results_per_query: int = 20
+
     # ─── WebSocket ─────────────────────────────────────────
     ws_heartbeat_interval: int = 30
     ws_max_connections_free: int = 1

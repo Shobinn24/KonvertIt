@@ -53,3 +53,25 @@ class ListingRepository(BaseRepository[Listing]):
         )
         result = await self.session.execute(stmt)
         return {row[0]: row[1] for row in result.all()}
+
+    async def has_active_listing_for_product(
+        self,
+        user_id: uuid.UUID,
+        product_id: uuid.UUID,
+    ) -> Listing | None:
+        """Check if a product already has an active or draft listing for this user.
+
+        Returns the existing Listing if found, None otherwise.
+        Used for duplicate prevention before creating new listings.
+        """
+        stmt = (
+            select(Listing)
+            .where(
+                Listing.user_id == user_id,
+                Listing.product_id == product_id,
+                Listing.status.in_(["draft", "active"]),
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()

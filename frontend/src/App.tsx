@@ -16,6 +16,7 @@ import { PrivacyPage } from "@/pages/PrivacyPage";
 import { RefundPolicyPage } from "@/pages/RefundPolicyPage";
 import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { AutoDiscoverPage } from "@/pages/AutoDiscoverPage";
 
 const router = createBrowserRouter([
   {
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
         children: [
           { path: "dashboard", element: <DashboardPage /> },
           { path: "discover", element: <DiscoverPage /> },
+          { path: "auto-discover", element: <AutoDiscoverPage /> },
           { path: "convert", element: <ConvertPage /> },
           { path: "listings", element: <ListingsPage /> },
           { path: "settings", element: <SettingsPage /> },

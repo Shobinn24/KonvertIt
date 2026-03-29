@@ -11,6 +11,7 @@ Usage:
     products = await product_repo.find_by_user(user_id)
 """
 
+from app.db.repositories.auto_discovery_repo import AutoDiscoveryRepository
 from app.db.repositories.base_repo import BaseRepository
 from app.db.repositories.conversion_repo import ConversionRepository
 from app.db.repositories.ebay_credential_repo import EbayCredentialRepository
@@ -20,6 +21,7 @@ from app.db.repositories.product_repo import ProductRepository
 from app.db.repositories.user_repo import UserRepository
 
 __all__ = [
+    "AutoDiscoveryRepository",
     "BaseRepository",
     "ConversionRepository",
     "EbayCredentialRepository",
