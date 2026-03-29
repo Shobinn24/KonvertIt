@@ -11,7 +11,6 @@ Finds profitable products automatically by:
 Designed to be called by a scheduler (one run per user per cycle).
 """
 
-import asyncio
 import logging
 from collections import Counter
 from dataclasses import dataclass, field

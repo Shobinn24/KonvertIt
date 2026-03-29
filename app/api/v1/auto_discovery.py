@@ -220,7 +220,7 @@ async def trigger_run(
         raise HTTPException(
             status_code=500,
             detail=f"Auto-discovery run failed: {type(e).__name__}",
-        )
+        ) from e
 
 
 @router.get(

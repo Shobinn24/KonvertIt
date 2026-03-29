@@ -19,10 +19,9 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from pydantic import BaseModel, Field
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -362,7 +361,7 @@ async def create_conversion(
                 "ebay_item_id": e.ebay_item_id,
                 "listing_id": e.listing_id,
             },
-        )
+        ) from e
     except ConversionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except KonvertItError as e:
@@ -707,7 +706,6 @@ async def debug_ebay(
     db: AsyncSession = Depends(get_db),
 ):
     """Temporary diagnostic endpoint to check eBay API state."""
-    import httpx
 
     user_id = user["sub"]
     lister = await _get_ebay_lister(user_id, db)

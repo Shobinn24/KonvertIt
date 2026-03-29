@@ -688,7 +688,7 @@ class EbayLister(IListable):
                     raise DuplicateListingError(
                         product_title=draft.title,
                         ebay_item_id=None,  # We don't have the item ID yet
-                    )
+                    ) from e
                 else:
                     raise
 
