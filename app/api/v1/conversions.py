@@ -257,12 +257,20 @@ async def _persist_conversion_result(
         db.add(conversion_orm)
         await db.commit()
         logger.info(f"Persisted conversion for {result.url} (status={status})")
+    except DuplicateListingError:
+        # Let duplicate errors propagate — the endpoint returns HTTP 409
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     except Exception as e:
         logger.error(f"Failed to persist conversion for {result.url}: {e}", exc_info=True)
         try:
             await db.rollback()
         except Exception:
             pass
+        raise
 
 
 async def _check_listing_cap(

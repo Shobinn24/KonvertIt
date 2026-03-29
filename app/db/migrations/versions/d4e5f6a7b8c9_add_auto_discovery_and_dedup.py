@@ -39,6 +39,44 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
+
+    # Backfill product_id on existing listings via the conversion relationship
+    # (Conversion already links product_id and listing_id)
+    op.execute(
+        """
+        UPDATE listings
+        SET product_id = c.product_id
+        FROM conversions c
+        WHERE c.listing_id = listings.id
+          AND listings.product_id IS NULL
+        """
+    )
+
+    # If backfill created conflicts (same user+product with multiple active
+    # listings), keep the newest and end the older ones so the unique index
+    # can be created safely.
+    op.execute(
+        """
+        UPDATE listings
+        SET status = 'ended'
+        WHERE id IN (
+            SELECT l.id
+            FROM listings l
+            INNER JOIN (
+                SELECT user_id, product_id, MAX(created_at) AS newest
+                FROM listings
+                WHERE status IN ('draft', 'active')
+                  AND product_id IS NOT NULL
+                GROUP BY user_id, product_id
+                HAVING COUNT(*) > 1
+            ) dups ON l.user_id = dups.user_id
+                  AND l.product_id = dups.product_id
+                  AND l.created_at < dups.newest
+            WHERE l.status IN ('draft', 'active')
+        )
+        """
+    )
+
     # Partial unique index: only one draft/active listing per product per user
     op.execute(
         """

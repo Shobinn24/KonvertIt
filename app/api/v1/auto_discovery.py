@@ -66,17 +66,11 @@ class AutoDiscoveryRunResponse(BaseModel):
     run_at: str
 
 
-class AutoDiscoveryHistoryResponse(BaseModel):
-    """Paginated list of auto-discovery run records."""
-
-    runs: list[AutoDiscoveryRunResponse]
-    total: int
-
-
 class AutoDiscoveryRunTriggerResponse(BaseModel):
     """Response after triggering a manual auto-discovery run."""
 
-    status: str
+    data_source: str
+    queries_searched: list[str] = []
     products_evaluated: int = 0
     products_converted: int = 0
     errors: int = 0
@@ -176,8 +170,6 @@ async def trigger_run(
     Useful for testing configuration before enabling scheduled runs.
     Uses the user's saved config (or defaults if none exists).
     """
-    from app.scrapers.browser_manager import BrowserManager
-    from app.scrapers.proxy_manager import ProxyManager
     from app.services.auto_discovery_service import AutoDiscoveryService
 
     user_id = uuid.UUID(user["sub"])
@@ -190,27 +182,25 @@ async def trigger_run(
         await db.commit()
 
     try:
-        proxy_manager = ProxyManager()
-        browser_manager = BrowserManager()
-        await browser_manager.start()
+        from app.services.compliance_service import ComplianceService
+        from app.services.discovery_service import DiscoveryService
+        from app.services.profit_engine import ProfitEngine
 
-        try:
-            service = AutoDiscoveryService(
-                session=db,
-                proxy_manager=proxy_manager,
-                browser_manager=browser_manager,
-            )
-            result = await service.run_for_user(user_id)
-            await db.commit()
+        service = AutoDiscoveryService(
+            discovery_service=DiscoveryService(),
+            profit_engine=ProfitEngine(),
+            compliance_service=ComplianceService(),
+        )
+        run_result = await service.run_for_user(user_id, config, db)
+        await db.commit()
 
-            return {
-                "status": "completed",
-                "products_evaluated": result.get("products_evaluated", 0),
-                "products_converted": result.get("products_converted", 0),
-                "errors": result.get("errors", 0),
-            }
-        finally:
-            await browser_manager.stop()
+        return {
+            "data_source": run_result.data_source,
+            "queries_searched": run_result.queries_searched,
+            "products_evaluated": run_result.products_evaluated,
+            "products_converted": run_result.products_converted,
+            "errors": run_result.errors,
+        }
 
     except Exception as e:
         logger.error(
@@ -226,13 +216,13 @@ async def trigger_run(
 @router.get(
     "/history",
     summary="Get auto-discovery run history",
-    response_model=AutoDiscoveryHistoryResponse,
+    response_model=list[AutoDiscoveryRunResponse],
 )
 async def get_history(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=20, ge=1, le=100, description="Max results to return"),
-) -> dict:
+) -> list[dict]:
     """Return past auto-discovery run records for the current user.
 
     Results are ordered newest-first and support pagination via the
@@ -242,21 +232,18 @@ async def get_history(
     repo = AutoDiscoveryRepository(db)
     runs = await repo.get_runs(user_id, limit=limit)
 
-    return {
-        "runs": [
-            {
-                "id": str(run.id),
-                "data_source": run.data_source,
-                "queries_searched": run.queries_searched or [],
-                "products_evaluated": run.products_evaluated,
-                "products_converted": run.products_converted,
-                "products_skipped_duplicate": run.products_skipped_duplicate,
-                "products_skipped_compliance": run.products_skipped_compliance,
-                "products_skipped_margin": run.products_skipped_margin,
-                "errors": run.errors,
-                "run_at": run.run_at.isoformat(),
-            }
-            for run in runs
-        ],
-        "total": len(runs),
-    }
+    return [
+        {
+            "id": str(run.id),
+            "data_source": run.data_source,
+            "queries_searched": run.queries_searched or [],
+            "products_evaluated": run.products_evaluated,
+            "products_converted": run.products_converted,
+            "products_skipped_duplicate": run.products_skipped_duplicate,
+            "products_skipped_compliance": run.products_skipped_compliance,
+            "products_skipped_margin": run.products_skipped_margin,
+            "errors": run.errors,
+            "run_at": run.run_at.isoformat(),
+        }
+        for run in runs
+    ]

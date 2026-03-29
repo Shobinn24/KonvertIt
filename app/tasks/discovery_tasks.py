@@ -54,6 +54,9 @@ async def auto_discover_task(ctx: dict) -> dict:
     async with async_session_factory() as session:
         from app.db.repositories.auto_discovery_repo import AutoDiscoveryRepository
         from app.services.auto_discovery_service import AutoDiscoveryService
+        from app.services.compliance_service import ComplianceService
+        from app.services.discovery_service import DiscoveryService
+        from app.services.profit_engine import ProfitEngine
 
         repo = AutoDiscoveryRepository(session)
         configs = await repo.get_enabled_configs()
@@ -63,19 +66,22 @@ async def auto_discover_task(ctx: dict) -> dict:
             len(configs),
         )
 
+        service = AutoDiscoveryService(
+            discovery_service=DiscoveryService(),
+            profit_engine=ProfitEngine(),
+            compliance_service=ComplianceService(),
+        )
+
         for config in configs:
             total_users += 1
             try:
-                service = AutoDiscoveryService(
-                    session=session,
-                    proxy_manager=proxy_mgr,
-                    browser_manager=browser_mgr,
+                result = await service.run_for_user(
+                    config.user_id, config, session
                 )
-                result = await service.run_for_user(config.user_id)
 
-                total_evaluated += result.get("products_evaluated", 0)
-                total_converted += result.get("products_converted", 0)
-                total_errors += result.get("errors", 0)
+                total_evaluated += result.products_evaluated
+                total_converted += result.products_converted
+                total_errors += result.errors
 
                 await session.commit()
 

@@ -14,6 +14,7 @@ Designed to be called by a scheduler (one run per user per cycle).
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -102,6 +103,15 @@ class AutoDiscoveryService:
         """
         repo = AutoDiscoveryRepository(db)
         listing_repo = ListingRepository(db)
+
+        # Reset daily counter if the last run was on a previous day
+        now = datetime.now(UTC)
+        if config.last_run_at is None or config.last_run_at.date() < now.date():
+            config = await repo.upsert_config(
+                user_id, items_found_today=0, last_run_at=now,
+            )
+        else:
+            config = await repo.upsert_config(user_id, last_run_at=now)
 
         # Respect daily cap
         remaining_today = max(0, config.max_daily_items - config.items_found_today)
