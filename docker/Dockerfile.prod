@@ -44,7 +44,8 @@ RUN mkdir -p /opt/playwright \
 
 WORKDIR /app
 
-# Copy application code
+# Copy application code (railway.json changes bust this cache)
+COPY railway.json .
 COPY app/ app/
 COPY alembic.ini .
 COPY gunicorn.conf.py .
