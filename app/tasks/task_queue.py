@@ -8,6 +8,7 @@ Migration path to Celery documented for when scaling demands it.
 import logging
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 
 from app.config import get_settings
 
@@ -52,6 +53,16 @@ class WorkerSettings:
         "app.tasks.scrape_tasks.bulk_convert_task",
         "app.tasks.monitor_tasks.monitor_prices_task",
         "app.tasks.discovery_tasks.auto_discover_task",
+    ]
+
+    # Scheduled cron jobs — auto-discovery runs once daily at 02:00 UTC
+    cron_jobs = [
+        cron(
+            "app.tasks.discovery_tasks.auto_discover_task",
+            hour=2,
+            minute=0,
+            timeout=600,  # 10 min max for full sweep
+        ),
     ]
 
     on_startup = "app.tasks.scrape_tasks.startup"

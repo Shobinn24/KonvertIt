@@ -1,0 +1,59 @@
+# ─── Stage 1: Build dependencies ─────────────────────────────
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+# Install build-time system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# ─── Stage 2: Worker runtime ─────────────────────────────────
+FROM python:3.12-slim AS runtime
+
+# Labels
+LABEL maintainer="Shobinn Clark <shobinn@eclarx.com>"
+LABEL org.opencontainers.image.title="KonvertIt Worker"
+LABEL org.opencontainers.image.description="arq background task worker"
+
+# Install runtime-only system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxml2 \
+    libxslt1.1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built Python packages from builder
+COPY --from=builder /install /usr/local
+
+# Create non-root user
+RUN groupadd -r konvertit && useradd -r -g konvertit -d /app -s /sbin/nologin konvertit
+
+# Install Playwright chromium (needed for scraping tasks)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN mkdir -p /opt/playwright \
+    && playwright install chromium --with-deps \
+    && chmod -R 755 /opt/playwright
+
+WORKDIR /app
+
+# Copy application code (railway.json changes bust this cache)
+COPY railway.json .
+COPY app/ app/
+COPY alembic.ini .
+COPY pyproject.toml .
+
+# Create writable dirs for temp files
+RUN mkdir -p /app/tmp && chown -R konvertit:konvertit /app
+
+# Switch to non-root
+USER konvertit
+
+# Run arq worker (processes background tasks + fires cron jobs)
+CMD ["python", "-m", "arq", "app.tasks.task_queue.WorkerSettings"]
