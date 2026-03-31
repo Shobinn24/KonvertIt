@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import {
   useAutoDiscoveryConfig,
   useUpdateAutoDiscoveryConfig,
@@ -35,6 +36,7 @@ export function AutoDiscoverPage() {
   const { data: history } = useAutoDiscoveryHistory();
 
   const [minMargin, setMinMargin] = useState<string>("");
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -243,6 +245,7 @@ export function AutoDiscoverPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-6" />
                     <TableHead>Date</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead className="text-right">Evaluated</TableHead>
@@ -252,48 +255,127 @@ export function AutoDiscoverPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map((run) => (
-                    <TableRow key={run.id}>
-                      <TableCell className="text-xs">
-                        {new Date(run.run_at).toLocaleDateString()}{" "}
-                        {new Date(run.run_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            run.data_source === "marketplace_insights"
-                              ? "default"
-                              : "secondary"
+                  {history.map((run) => {
+                    const isExpanded = expandedRunId === run.id;
+                    const hasProducts = run.converted_product_details?.length > 0;
+                    return (
+                      <>
+                        <TableRow
+                          key={run.id}
+                          className={hasProducts ? "cursor-pointer hover:bg-muted/40" : ""}
+                          onClick={() =>
+                            hasProducts
+                              ? setExpandedRunId(isExpanded ? null : run.id)
+                              : undefined
                           }
                         >
-                          {run.data_source === "marketplace_insights"
-                            ? "eBay Data"
-                            : "History"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {run.products_evaluated}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {run.products_converted}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {run.products_skipped_duplicate +
-                          run.products_skipped_compliance +
-                          run.products_skipped_margin}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {run.errors > 0 ? (
-                          <span className="text-destructive">{run.errors}</span>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
+                          <TableCell className="pl-3">
+                            {hasProducts ? (
+                              isExpanded ? (
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              )
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {new Date(run.run_at).toLocaleDateString()}{" "}
+                            {new Date(run.run_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                run.data_source === "marketplace_insights"
+                                  ? "default"
+                                  : "secondary"
+                              }
+                            >
+                              {run.data_source === "marketplace_insights"
+                                ? "eBay Data"
+                                : "History"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {run.products_evaluated}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {run.products_converted}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {run.products_skipped_duplicate +
+                              run.products_skipped_compliance +
+                              run.products_skipped_margin}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {run.errors > 0 ? (
+                              <span className="text-destructive">{run.errors}</span>
+                            ) : (
+                              <span className="text-muted-foreground">0</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+
+                        {/* Expanded product details */}
+                        {isExpanded && hasProducts && (
+                          <TableRow key={`${run.id}-details`}>
+                            <TableCell colSpan={7} className="bg-muted/20 p-0">
+                              <div className="px-6 py-3 space-y-2">
+                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                                  Converted Products
+                                </p>
+                                {run.converted_product_details.map((product, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-center justify-between rounded-lg border border-darkBorder bg-darkSurface px-4 py-3"
+                                  >
+                                    <div className="flex-1 min-w-0 pr-4">
+                                      <p className="text-sm font-medium truncate">
+                                        {product.title}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                        {product.marketplace} · Cost ${product.source_price.toFixed(2)} → Sell ${product.sell_price.toFixed(2)} · {product.margin_pct.toFixed(1)}% margin
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                      <Badge
+                                        variant={product.published ? "default" : "secondary"}
+                                        className="text-xs"
+                                      >
+                                        {product.published ? "Published" : "Draft"}
+                                      </Badge>
+                                      {product.ebay_item_id && (
+                                        <a
+                                          href={`https://www.ebay.com/itm/${product.ebay_item_id}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-xs text-accentBlue hover:underline flex items-center gap-1"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          View on eBay <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                      )}
+                                      <a
+                                        href={product.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        Source <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
                         )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                      </>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>

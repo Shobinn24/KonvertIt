@@ -51,6 +51,20 @@ class AutoDiscoveryConfigResponse(BaseModel):
     items_found_today: int = 0
 
 
+class ConvertedProductDetail(BaseModel):
+    """Details of a single product converted during an auto-discovery run."""
+
+    title: str
+    source_price: float
+    sell_price: float
+    estimated_profit: float
+    margin_pct: float
+    marketplace: str
+    url: str
+    published: bool
+    ebay_item_id: str | None = None
+
+
 class AutoDiscoveryRunResponse(BaseModel):
     """A single auto-discovery run record."""
 
@@ -64,6 +78,7 @@ class AutoDiscoveryRunResponse(BaseModel):
     products_skipped_margin: int
     errors: int
     run_at: str
+    converted_product_details: list[ConvertedProductDetail] = []
 
 
 class AutoDiscoveryRunTriggerResponse(BaseModel):
@@ -74,6 +89,7 @@ class AutoDiscoveryRunTriggerResponse(BaseModel):
     products_evaluated: int = 0
     products_converted: int = 0
     errors: int = 0
+    converted_product_details: list[ConvertedProductDetail] = []
 
 
 # ─── Endpoints ───────────────────────────────────────────────
@@ -182,17 +198,31 @@ async def trigger_run(
         await db.commit()
 
     try:
+        from app.scrapers.browser_manager import BrowserManager
+        from app.scrapers.proxy_manager import ProxyManager
         from app.services.compliance_service import ComplianceService
+        from app.services.conversion_service import ConversionService
         from app.services.discovery_service import DiscoveryService
         from app.services.profit_engine import ProfitEngine
 
-        service = AutoDiscoveryService(
-            discovery_service=DiscoveryService(),
-            profit_engine=ProfitEngine(),
-            compliance_service=ComplianceService(),
-        )
-        run_result = await service.run_for_user(user_id, config, db)
-        await db.commit()
+        proxy_manager = ProxyManager()
+        browser_manager = BrowserManager()
+        await browser_manager.start()
+
+        try:
+            service = AutoDiscoveryService(
+                discovery_service=DiscoveryService(),
+                profit_engine=ProfitEngine(),
+                compliance_service=ComplianceService(),
+                conversion_service=ConversionService(
+                    proxy_manager=proxy_manager,
+                    browser_manager=browser_manager,
+                ),
+            )
+            run_result = await service.run_for_user(user_id, config, db)
+            await db.commit()
+        finally:
+            await browser_manager.stop()
 
         return {
             "data_source": run_result.data_source,
@@ -200,6 +230,7 @@ async def trigger_run(
             "products_evaluated": run_result.products_evaluated,
             "products_converted": run_result.products_converted,
             "errors": run_result.errors,
+            "converted_product_details": run_result.converted_products,
         }
 
     except Exception as e:
@@ -244,6 +275,7 @@ async def get_history(
             "products_skipped_margin": run.products_skipped_margin,
             "errors": run.errors,
             "run_at": run.run_at.isoformat(),
+            "converted_product_details": run.converted_product_details or [],
         }
         for run in runs
     ]

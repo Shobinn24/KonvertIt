@@ -18,6 +18,18 @@ export interface AutoDiscoveryConfigUpdate {
   marketplaces?: string[];
 }
 
+export interface ConvertedProductDetail {
+  title: string;
+  source_price: number;
+  sell_price: number;
+  estimated_profit: number;
+  margin_pct: number;
+  marketplace: string;
+  url: string;
+  published: boolean;
+  ebay_item_id: string | null;
+}
+
 export interface AutoDiscoveryRun {
   id: string;
   data_source: string;
@@ -29,6 +41,7 @@ export interface AutoDiscoveryRun {
   products_skipped_margin: number;
   errors: number;
   run_at: string;
+  converted_product_details: ConvertedProductDetail[];
 }
 
 export interface AutoDiscoveryRunResult {
@@ -37,6 +50,7 @@ export interface AutoDiscoveryRunResult {
   products_evaluated: number;
   products_converted: number;
   errors: number;
+  converted_product_details: ConvertedProductDetail[];
 }
 
 export async function getAutoDiscoveryConfig(): Promise<AutoDiscoveryConfig> {

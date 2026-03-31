@@ -10,6 +10,7 @@ import logging
 from app.db.database import async_session_factory
 from app.scrapers.browser_manager import BrowserManager
 from app.scrapers.proxy_manager import ProxyManager
+from app.services.conversion_service import ConversionService
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,10 @@ async def auto_discover_task(ctx: dict) -> dict:
             discovery_service=DiscoveryService(),
             profit_engine=ProfitEngine(),
             compliance_service=ComplianceService(),
+            conversion_service=ConversionService(
+                proxy_manager=proxy_mgr,
+                browser_manager=browser_mgr,
+            ),
         )
 
         for config in configs:

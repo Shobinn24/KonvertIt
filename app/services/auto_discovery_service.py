@@ -24,6 +24,7 @@ from app.db.models import AutoDiscoveryConfig, AutoDiscoveryRun, Conversion, Pro
 from app.db.repositories.auto_discovery_repo import AutoDiscoveryRepository
 from app.db.repositories.listing_repo import ListingRepository
 from app.services.compliance_service import ComplianceService
+from app.services.conversion_service import ConversionService
 from app.services.discovery_service import DiscoveryService
 from app.services.profit_engine import ProfitEngine
 
@@ -77,10 +78,12 @@ class AutoDiscoveryService:
         discovery_service: DiscoveryService,
         profit_engine: ProfitEngine,
         compliance_service: ComplianceService,
+        conversion_service: ConversionService | None = None,
     ):
         self._discovery = discovery_service
         self._profit = profit_engine
         self._compliance = compliance_service
+        self._conversion = conversion_service
 
     # ── Main entry point ──────────────────────────────────────────
 
@@ -169,21 +172,58 @@ class AutoDiscoveryService:
         # 5. Convert winners (up to remaining daily cap)
         winners = winners[:remaining_today]
         for candidate in winners:
+            url = candidate["url"]
             try:
-                result.converted_products.append({
-                    "name": candidate["name"],
-                    "source_price": candidate["price"],
-                    "suggested_sell_price": candidate["sell_price"],
-                    "estimated_profit": candidate["profit"],
-                    "margin_pct": candidate["margin_pct"],
-                    "marketplace": candidate["marketplace"],
-                    "url": candidate["url"],
-                })
+                if self._conversion is not None:
+                    conv_result = await self._conversion.convert_url(
+                        url=url,
+                        user_id=str(user_id),
+                        publish=config.auto_publish,
+                        sell_price=candidate["sell_price"],
+                    )
+                    if not conv_result.is_successful:
+                        logger.warning(
+                            "Auto-discovery: conversion failed for %s: %s",
+                            url, conv_result.error,
+                        )
+                        result.errors += 1
+                        continue
+
+                    product_detail: dict = {
+                        "title": conv_result.product.title if conv_result.product else candidate["name"],
+                        "source_price": candidate["price"],
+                        "sell_price": candidate["sell_price"],
+                        "estimated_profit": candidate["profit"],
+                        "margin_pct": round(candidate["margin_pct"], 1),
+                        "marketplace": candidate["marketplace"],
+                        "url": url,
+                        "published": config.auto_publish,
+                        "ebay_item_id": (
+                            conv_result.listing.marketplace_item_id
+                            if conv_result.listing and conv_result.listing.marketplace_item_id
+                            else None
+                        ),
+                    }
+                else:
+                    # No conversion service — record candidate details only (dry run)
+                    product_detail = {
+                        "title": candidate["name"],
+                        "source_price": candidate["price"],
+                        "sell_price": candidate["sell_price"],
+                        "estimated_profit": candidate["profit"],
+                        "margin_pct": round(candidate["margin_pct"], 1),
+                        "marketplace": candidate["marketplace"],
+                        "url": url,
+                        "published": False,
+                        "ebay_item_id": None,
+                    }
+
+                result.converted_products.append(product_detail)
                 result.products_converted += 1
+
             except Exception:
                 logger.exception(
-                    "Auto-discovery: conversion error for %s",
-                    candidate.get("url", "unknown"),
+                    "Auto-discovery: conversion error for %s", url,
                 )
                 result.errors += 1
 
@@ -473,6 +513,7 @@ class AutoDiscoveryService:
             products_skipped_compliance=result.products_skipped_compliance,
             products_skipped_margin=result.products_skipped_margin,
             errors=result.errors,
+            converted_product_details=result.converted_products,
         )
         await repo.save_run(run)
 

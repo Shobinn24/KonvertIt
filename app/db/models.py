@@ -374,6 +374,9 @@ class AutoDiscoveryRun(Base):
     products_skipped_compliance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     products_skipped_margin: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     errors: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    converted_product_details: Mapped[list] = mapped_column(
+        JSON, default=list, nullable=False, server_default="[]"
+    )
     run_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
