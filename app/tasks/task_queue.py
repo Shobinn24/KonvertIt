@@ -6,6 +6,7 @@ Migration path to Celery documented for when scaling demands it.
 """
 
 import logging
+from urllib.parse import urlparse
 
 from arq.connections import RedisSettings
 from arq.cron import cron
@@ -18,25 +19,14 @@ logger = logging.getLogger(__name__)
 def get_redis_settings() -> RedisSettings:
     """Parse Redis URL into arq RedisSettings."""
     settings = get_settings()
-    url = settings.redis_url
+    parsed = urlparse(settings.redis_url)
 
-    # Parse redis://host:port/db format
-    # Default: redis://localhost:6379/0
-    if url.startswith("redis://"):
-        url = url[len("redis://"):]
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 6379
+    password = parsed.password or None
+    database = int(parsed.path.lstrip("/")) if parsed.path and parsed.path != "/" else 0
 
-    parts = url.split("/")
-    host_port = parts[0]
-    database = int(parts[1]) if len(parts) > 1 else 0
-
-    if ":" in host_port:
-        host, port = host_port.split(":")
-        port = int(port)
-    else:
-        host = host_port
-        port = 6379
-
-    return RedisSettings(host=host, port=port, database=database)
+    return RedisSettings(host=host, port=port, database=database, password=password)
 
 
 class WorkerSettings:
