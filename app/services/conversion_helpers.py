@@ -44,7 +44,7 @@ async def get_ebay_lister_for_user(
     """
     try:
         repo = EbayCredentialRepository(db)
-        creds = await repo.get_by_user_id(uuid.UUID(user_id))
+        creds = await repo.find_by_user(uuid.UUID(user_id))
         if not creds:
             return None
 
