@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { WebSocketToast } from "@/components/shared/WebSocketToast";
 import { EmailVerificationBanner } from "@/components/shared/EmailVerificationBanner";
+import { OnboardingModal } from "@/components/shared/OnboardingModal";
 
 export function AppShell() {
   return (
@@ -12,6 +13,7 @@ export function AppShell() {
         <Outlet />
       </main>
       <WebSocketToast />
+      <OnboardingModal />
     </div>
   );
 }

@@ -28,8 +28,8 @@ const tierLabels: Record<string, string> = {
 
 const tierPrices: Record<string, string> = {
   free: "Free",
-  pro: "$29/mo",
-  enterprise: "$99/mo",
+  pro: "$14/mo",
+  enterprise: "$49/mo",
 };
 
 const tierBadgeColors: Record<string, string> = {
@@ -174,7 +174,7 @@ export function BillingCard() {
                 <Sparkles className="h-5 w-5 text-accentPurple" />
                 <span className="text-sm font-semibold">Get Hustler</span>
                 <span className="text-2xl font-bold">
-                  $29<span className="text-sm font-normal text-muted-foreground">/mo</span>
+                  $14<span className="text-sm font-normal text-muted-foreground">/mo</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
                   500 conversions/day · Unlimited listings
@@ -190,7 +190,7 @@ export function BillingCard() {
                 <Sparkles className="h-5 w-5 text-accentBlue" />
                 <span className="text-sm font-semibold">Get Enterprise</span>
                 <span className="text-2xl font-bold">
-                  $99<span className="text-sm font-normal text-muted-foreground">/mo</span>
+                  $49<span className="text-sm font-normal text-muted-foreground">/mo</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
                   Unlimited everything · API access

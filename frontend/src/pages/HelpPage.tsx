@@ -1,13 +1,10 @@
 import { TopBar } from "@/components/layout/TopBar";
 import {
-  Settings,
+  Plug,
   Truck,
   RotateCcw,
-  CreditCard,
-  MapPin,
-  LayoutList,
-  BarChart3,
-  Package,
+  Search,
+  Zap,
   ShoppingCart,
   ArrowRight,
   ExternalLink,
@@ -76,7 +73,7 @@ function Warning({ children }: { children: React.ReactNode }) {
 export function HelpPage() {
   return (
     <>
-      <TopBar title="Help & Setup Guide" />
+      <TopBar title="Help & Getting Started" />
       <div className="max-w-3xl space-y-8 p-6">
         {/* Intro */}
         <div>
@@ -85,201 +82,103 @@ export function HelpPage() {
             <span className="text-accentPurple">KonvertIt</span>
           </h2>
           <p className="mt-2 text-muted-foreground">
-            Follow these steps to set up your eBay seller account for automated
-            listings. Once configured, KonvertIt can push converted products
-            directly to your store.
+            Follow these four steps to connect your eBay account and start
+            listing profitable products in minutes.
           </p>
         </div>
 
-        {/* ── Section 1: Selling Preferences ── */}
-        <SectionCard icon={Settings} number={1} title="Dial in Your Selling Preferences">
+        {/* ── Step 1: Connect eBay ── */}
+        <SectionCard icon={Plug} number={1} title="Connect Your eBay Account">
           <StepList
             steps={[
-              "In eBay, click your avatar/name \u2192 Account settings.",
-              "Open Selling preferences.",
-              "Automated Feedback \u2192 Edit \u2192 On \u2192 Save.",
-              "Return preferences \u2192 Edit \u2192 enable RMA number.",
+              "Go to Settings (bottom of the left sidebar).",
+              'Open the "eBay Account" tab.',
+              'Click "Connect eBay Account" and sign in with your eBay seller credentials.',
+              "Once connected, your account name will appear and you're ready to list.",
             ]}
           />
-          <p className="mt-2 font-medium text-foreground">Turn On:</p>
-          <ul className="list-inside list-disc space-y-1">
-            <li>
-              <strong>Listings stay active when you're out of stock</strong> — prevents ended
-              listings when quantity hits 0.
-            </li>
-            <li>
-              <strong>Show buyers the exact quantity available</strong> — social proof + urgency.
-            </li>
-          </ul>
           <Tip>
-            These switches reduce manual work, keep URLs alive for SEO/history,
-            and increase buyer trust.
+            KonvertIt uses eBay's official OAuth flow — your password is never
+            stored. You can disconnect at any time from the same Settings page.
           </Tip>
         </SectionCard>
 
-        {/* ── Section 2: Shipping & Business Policies ── */}
-        <SectionCard icon={Truck} number={2} title="Shipping Preferences + Business Policies">
+        {/* ── Step 2: Business Policies ── */}
+        <SectionCard icon={RotateCcw} number={2} title="Set Up Your eBay Business Policies">
+          <p>
+            KonvertIt attaches your eBay business policies (shipping, returns,
+            payment) to every listing automatically. You only set these up once.
+          </p>
           <StepList
             steps={[
-              "In Account settings, open Shipping preferences.",
-              "Set Request buyer's phone number \u2192 Yes (useful for carrier issues and freight-sized items).",
-              "Go back to Account settings \u2192 Business policies.",
+              "In eBay, go to Account Settings → Business Policies.",
+              "Create a Shipping policy, a Returns policy, and a Payment policy.",
+              "Copy the Policy IDs from eBay.",
+              "Paste them into Settings → eBay Account → Policy IDs in KonvertIt.",
             ]}
           />
-          <Warning>
-            If you don't see Business policies, eBay may prompt you to opt
-            in — do it once and it stays on.
-          </Warning>
-          <p>
-            You'll create three policies: <strong>Shipping</strong>,{" "}
-            <strong>Returns</strong>, <strong>Payment</strong>.
-          </p>
-          <p className="text-xs">
-            Manage at:{" "}
+          <Tip>
+            Need to create your policies?{" "}
             <a
               href="https://www.ebay.com/bp/manage"
               target="_blank"
               rel="noopener noreferrer"
               className="text-accentBlue hover:underline"
             >
-              ebay.com/bp/manage <ExternalLink className="mb-0.5 inline h-3 w-3" />
+              Manage policies at ebay.com/bp/manage{" "}
+              <ExternalLink className="mb-0.5 inline h-3 w-3" />
             </a>
-          </p>
+          </Tip>
+          <Warning>
+            If you don't see Business Policies in your eBay account, you may
+            need to opt in once — eBay will prompt you automatically.
+          </Warning>
+        </SectionCard>
+
+        {/* ── Step 3: Discover Products ── */}
+        <SectionCard icon={Search} number={3} title="Find Profitable Products">
+          <p>There are two ways to find products to sell:</p>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-darkBorder p-3">
+              <p className="font-medium text-foreground">Manual Discovery</p>
+              <p className="mt-1">
+                Go to the <strong>Discover</strong> tab and search by keyword or
+                category. KonvertIt scans Amazon and Walmart for products with
+                strong profit margins and shows you the best matches.
+              </p>
+            </div>
+            <div className="rounded-lg border border-accentPurple/20 p-3">
+              <p className="font-medium text-foreground">
+                Auto-Discovery{" "}
+                <span className="text-accentPurple">(set it and forget it)</span>
+              </p>
+              <p className="mt-1">
+                Go to the <strong>Auto-Discover</strong> tab and toggle it ON.
+                KonvertIt will automatically find and convert profitable products
+                for you every day — no manual searching needed.
+              </p>
+            </div>
+          </div>
           <Tip>
-            Policies let KonvertIt attach the right rules to each listing
-            automatically. Copy the policy IDs into your Settings page once
-            created.
+            Start with Auto-Discovery toggled ON and set your minimum margin to
+            20%. KonvertIt will do the daily scanning for you in the background.
           </Tip>
         </SectionCard>
 
-        {/* ── Section 3: Shipping Policy ── */}
-        <SectionCard icon={Package} number={3} title="Create Your Shipping Policy (Contiguous US)">
-          <p className="font-medium text-foreground">
-            Goal: Fast, predictable shipping windows that match supplier
-            performance.
-          </p>
+        {/* ── Step 4: Convert & List ── */}
+        <SectionCard icon={Zap} number={4} title="Convert Products & Publish to eBay">
+          <p>Once you've found a product you want to sell:</p>
           <StepList
             steps={[
-              'Create policy \u2192 Shipping.',
-              'Policy name: US-Contig-Flat-2Biz (use names you\'ll recognize in bulk).',
-              'Domestic services: Standard shipping with Flat cost type.',
-              'Primary service: USPS Priority Mail (1\u20134 business days) or UPS Ground.',
-              'Price: start with Free shipping for best conversion on BIN listings.',
-              'Handling time: 2 business days (safe with most supplier-direct flows).',
-              'Ship-to: United States.',
-              'Exclude locations: Alaska/Hawaii and US Protectorates (PR, GU, VI).',
+              "Go to the Convert tab.",
+              "Paste the Amazon or Walmart product URL.",
+              'Click "Convert" — KonvertIt generates the full eBay listing automatically.',
+              'Review the listing, then click "Publish to eBay" to go live instantly.',
             ]}
           />
           <Tip>
-            If your catalog includes heavier/bulky items, duplicate this policy
-            as <code className="rounded bg-darkBorder px-1">US-Contig-Calc-2Biz</code>{" "}
-            and use Calculated rates with UPS/FedEx ground. Keep one Economy
-            (5-8 business days) policy in reserve for slower suppliers.
-          </Tip>
-        </SectionCard>
-
-        {/* ── Section 4: Return Policy ── */}
-        <SectionCard icon={RotateCcw} number={4} title="Create Your Return Policy">
-          <p className="font-medium text-foreground">
-            Option A: Conversion-Focused (recommended if margins allow)
-          </p>
-          <ul className="list-inside list-disc space-y-1">
-            <li>Accept returns: 30 days</li>
-            <li>Who pays return shipping: Seller (Free returns)</li>
-            <li>Refund method: Money back</li>
-            <li>
-              Policy name:{" "}
-              <code className="rounded bg-darkBorder px-1">Returns-30D-Free</code>
-            </li>
-          </ul>
-          <p className="mt-3 font-medium text-foreground">
-            Option B: Margin-Protect (common for supplier-direct)
-          </p>
-          <ul className="list-inside list-disc space-y-1">
-            <li>Accept returns: 30 days</li>
-            <li>
-              Who pays: Buyer for remorse/changed mind; Seller if SNAD/defect
-            </li>
-            <li>Refund method: Money back</li>
-            <li>
-              Policy name:{" "}
-              <code className="rounded bg-darkBorder px-1">Returns-30D-BuyerPays</code>
-            </li>
-          </ul>
-          <Tip>
-            Free returns can lift conversion and help with seller protections on
-            many categories. If your niche is low-margin, use Option B.
-          </Tip>
-        </SectionCard>
-
-        {/* ── Section 5: Payment Policy ── */}
-        <SectionCard icon={CreditCard} number={5} title="Create Your Payment Policy">
-          <StepList
-            steps={[
-              "Create policy \u2192 Payment.",
-              "Policy name: Payment-Immediate.",
-              "Immediate payment required: On (applies to Buy It Now).",
-              "Save.",
-            ]}
-          />
-          <Tip>
-            Cuts down on unpaid orders and speeds up auto-fulfillment.
-          </Tip>
-        </SectionCard>
-
-        {/* ── Section 6: Shopping Location ── */}
-        <SectionCard icon={MapPin} number={6} title="Set Your Shopping (Viewing) Location">
-          <StepList
-            steps={[
-              'Search any item (e.g., "book").',
-              "Click Update your shipping location in the results header.",
-              "Choose your country and enter a valid ZIP.",
-              "Apply.",
-            ]}
-          />
-          <Tip>
-            Ensures you see accurate ETAs/rates while researching and
-            spot-checking listings.
-          </Tip>
-        </SectionCard>
-
-        {/* ── Section 7: Listing Page Display ── */}
-        <SectionCard icon={LayoutList} number={7} title="Customize Your Listing Page Display">
-          <StepList
-            steps={[
-              "Click the \u22EF menu (top right) \u2192 Customise.",
-              "Enable: Seller information, Item number.",
-              "Apply changes.",
-            ]}
-          />
-          <Tip>
-            Item numbers are handy for support, spreadsheets, and bulk actions.
-          </Tip>
-        </SectionCard>
-
-        {/* ── Section 8: Seller Hub Table ── */}
-        <SectionCard icon={BarChart3} number={8} title="Optimize Your Seller Hub Table View">
-          <StepList
-            steps={[
-              "Go to Seller Hub \u2192 Listings.",
-              "Customise table \u2192 enable the columns listed below.",
-              "Save.",
-            ]}
-          />
-          <p className="font-medium text-foreground">Enable these columns:</p>
-          <ul className="list-inside list-disc space-y-1">
-            <li>Item specifics</li>
-            <li>Custom label (SKU)</li>
-            <li>Item number</li>
-            <li>Available quantity</li>
-            <li>Sold</li>
-            <li>Price</li>
-            <li>Start date</li>
-            <li>End date</li>
-          </ul>
-          <Tip>
-            This view shows the levers that matter for automation, stock control,
-            and aging.
+            Use <strong>Bulk Convert</strong> to upload a list of URLs at once
+            and convert multiple products in one go — great for scaling up fast.
           </Tip>
         </SectionCard>
 
@@ -367,7 +266,7 @@ export function HelpPage() {
           <div className="space-y-3 text-sm text-muted-foreground">
             <StepList
               steps={[
-                "Stock core supplies: 4\u00D76 thermal printer, boxes, poly mailers, bubble, tape, scale.",
+                "Stock core supplies: 4×6 thermal printer, boxes, poly mailers, bubble, tape, scale.",
                 "Receive & QC the item (photos if high value).",
                 "Pack in neutral packaging; add thank-you card/QR if you want.",
                 "Buy label (eBay label, Pirate Ship, or Shippo).",
@@ -403,7 +302,7 @@ export function HelpPage() {
             {
               title: "Head to Amazon",
               text: "Go to your PERSONAL Amazon.com buying account (not your business account).",
-              tip: "Option 1 (Fastest): Copy/paste the item title from the eBay listing into the Amazon search bar. Option 2: KonvertIt inserts the ASIN into the eBay listing SKU \u2014 copy the ASIN and search directly.",
+              tip: "Option 1 (Fastest): Copy/paste the item title from the eBay listing into the Amazon search bar. Option 2: KonvertIt inserts the ASIN into the eBay listing SKU — copy the ASIN and search directly.",
             },
             {
               title: "Locate the Exact Item",
@@ -436,7 +335,7 @@ export function HelpPage() {
             },
             {
               title: "Convert the Tracking Number",
-              text: 'If the tracking number starts with TBA (Amazon\'s logistics) \u2014 which is 95% of cases \u2014 you must convert it to an eBay-accepted tracking number.',
+              text: 'If the tracking number starts with TBA (Amazon\'s logistics) — which is 95% of cases — you must convert it to an eBay-accepted tracking number.',
             },
           ].map((step, i) => (
             <div
