@@ -10,7 +10,6 @@ import logging
 from app.db.database import async_session_factory
 from app.scrapers.browser_manager import BrowserManager
 from app.scrapers.proxy_manager import ProxyManager
-from app.services.conversion_service import ConversionService
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,9 @@ async def auto_discover_task(ctx: dict) -> dict:
     Scheduled task: run auto-discovery for all enabled users.
 
     Iterates through all users who have auto-discovery enabled and
-    searches for profitable products to convert and list.
+    searches for profitable products to convert and list. Each user
+    gets their own ConversionService wired with their eBay OAuth
+    credentials so products are published to the correct eBay account.
 
     Returns:
         Summary dict with total users processed, products found, and errors.
@@ -53,9 +54,15 @@ async def auto_discover_task(ctx: dict) -> dict:
     total_errors = 0
 
     async with async_session_factory() as session:
+        from app.converters.ebay_converter import EbayConverter
         from app.db.repositories.auto_discovery_repo import AutoDiscoveryRepository
         from app.services.auto_discovery_service import AutoDiscoveryService
         from app.services.compliance_service import ComplianceService
+        from app.services.conversion_helpers import (
+            get_ebay_lister_for_user,
+            persist_conversion_result,
+        )
+        from app.services.conversion_service import ConversionService
         from app.services.discovery_service import DiscoveryService
         from app.services.profit_engine import ProfitEngine
 
@@ -67,21 +74,44 @@ async def auto_discover_task(ctx: dict) -> dict:
             len(configs),
         )
 
-        service = AutoDiscoveryService(
-            discovery_service=DiscoveryService(),
-            profit_engine=ProfitEngine(),
-            compliance_service=ComplianceService(),
-            conversion_service=ConversionService(
-                proxy_manager=proxy_mgr,
-                browser_manager=browser_mgr,
-            ),
-        )
-
         for config in configs:
             total_users += 1
+            user_id_str = str(config.user_id)
             try:
+                # Build a per-user EbayLister from their stored OAuth credentials
+                ebay_lister = await get_ebay_lister_for_user(user_id_str, session)
+                if ebay_lister is None:
+                    logger.warning(
+                        "[auto-discover] No eBay credentials for user %s — "
+                        "products will be saved as drafts only",
+                        user_id_str,
+                    )
+
+                # ConversionService wired with this user's eBay account
+                conversion_svc = ConversionService(
+                    proxy_manager=proxy_mgr,
+                    browser_manager=browser_mgr,
+                    compliance_service=ComplianceService(),
+                    profit_engine=ProfitEngine(),
+                    ebay_converter=EbayConverter(),
+                    ebay_lister=ebay_lister,
+                )
+
+                service = AutoDiscoveryService(
+                    discovery_service=DiscoveryService(),
+                    profit_engine=ProfitEngine(),
+                    compliance_service=ComplianceService(),
+                    conversion_service=conversion_svc,
+                )
+
+                # Capture user_id_str per-iteration for the closure
+                _uid = user_id_str
+
+                async def on_converted(result, uid=_uid) -> None:
+                    await persist_conversion_result(result, uid, session)
+
                 result = await service.run_for_user(
-                    config.user_id, config, session
+                    config.user_id, config, session, on_converted=on_converted
                 )
 
                 total_evaluated += result.products_evaluated
@@ -93,7 +123,7 @@ async def auto_discover_task(ctx: dict) -> dict:
             except Exception as e:
                 logger.error(
                     "[auto-discover] Error running auto-discovery for user %s: %s",
-                    config.user_id, e,
+                    user_id_str, e, exc_info=True,
                 )
                 await session.rollback()
                 total_errors += 1

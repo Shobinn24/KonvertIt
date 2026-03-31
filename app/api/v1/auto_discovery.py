@@ -198,31 +198,28 @@ async def trigger_run(
         await db.commit()
 
     try:
-        from app.scrapers.browser_manager import BrowserManager
-        from app.scrapers.proxy_manager import ProxyManager
         from app.services.compliance_service import ComplianceService
-        from app.services.conversion_service import ConversionService
+        from app.services.conversion_helpers import (
+            conversion_service_context,
+            persist_conversion_result,
+        )
         from app.services.discovery_service import DiscoveryService
         from app.services.profit_engine import ProfitEngine
 
-        proxy_manager = ProxyManager()
-        browser_manager = BrowserManager()
-        await browser_manager.start()
-
-        try:
+        async with conversion_service_context(str(user_id), db) as conv_service:
             service = AutoDiscoveryService(
                 discovery_service=DiscoveryService(),
                 profit_engine=ProfitEngine(),
                 compliance_service=ComplianceService(),
-                conversion_service=ConversionService(
-                    proxy_manager=proxy_manager,
-                    browser_manager=browser_manager,
-                ),
+                conversion_service=conv_service,
             )
-            run_result = await service.run_for_user(user_id, config, db)
-            await db.commit()
-        finally:
-            await browser_manager.close()
+
+            async def on_converted(result) -> None:
+                await persist_conversion_result(result, str(user_id), db)
+
+            run_result = await service.run_for_user(
+                user_id, config, db, on_converted=on_converted
+            )
 
         return {
             "data_source": run_result.data_source,

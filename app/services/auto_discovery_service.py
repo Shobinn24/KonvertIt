@@ -15,6 +15,7 @@ import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Awaitable, Callable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -92,6 +93,7 @@ class AutoDiscoveryService:
         user_id: UUID,
         config: AutoDiscoveryConfig,
         db: AsyncSession,
+        on_converted: Callable[["ConversionResult"], Awaitable[None]] | None = None,
     ) -> AutoDiscoveryRunResult:
         """
         Run one auto-discovery cycle for a user.
@@ -189,6 +191,21 @@ class AutoDiscoveryService:
                         result.errors += 1
                         continue
 
+                    # Persist Product, Listing, Conversion records to DB
+                    if on_converted is not None:
+                        try:
+                            await on_converted(conv_result)
+                        except Exception:
+                            logger.warning(
+                                "Auto-discovery: persistence failed for %s", url,
+                                exc_info=True,
+                            )
+
+                    ebay_item_id = (
+                        conv_result.listing.marketplace_item_id
+                        if conv_result.listing and conv_result.listing.marketplace_item_id
+                        else None
+                    )
                     product_detail: dict = {
                         "title": conv_result.product.title if conv_result.product else candidate["name"],
                         "source_price": candidate["price"],
@@ -197,12 +214,8 @@ class AutoDiscoveryService:
                         "margin_pct": round(candidate["margin_pct"], 1),
                         "marketplace": candidate["marketplace"],
                         "url": url,
-                        "published": config.auto_publish,
-                        "ebay_item_id": (
-                            conv_result.listing.marketplace_item_id
-                            if conv_result.listing and conv_result.listing.marketplace_item_id
-                            else None
-                        ),
+                        "published": bool(ebay_item_id),
+                        "ebay_item_id": ebay_item_id,
                     }
                 else:
                     # No conversion service — record candidate details only (dry run)
