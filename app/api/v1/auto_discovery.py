@@ -222,7 +222,7 @@ async def trigger_run(
             run_result = await service.run_for_user(user_id, config, db)
             await db.commit()
         finally:
-            await browser_manager.stop()
+            await browser_manager.close()
 
         return {
             "data_source": run_result.data_source,

@@ -74,7 +74,9 @@ export function AutoDiscoverPage() {
   return (
     <>
       <TopBar title="Auto-Discovery" />
-      <div className="space-y-6 p-6 max-w-3xl">
+      <div className="space-y-6 p-6">
+        {/* Top section: settings cards constrained to readable width */}
+        <div className="max-w-3xl space-y-6">
         {/* Master Toggle */}
         <Card>
           <CardHeader>
@@ -234,8 +236,9 @@ export function AutoDiscoverPage() {
             )}
           </CardContent>
         </Card>
+        </div>{/* end max-w-3xl settings section */}
 
-        {/* Run History */}
+        {/* Run History — full width */}
         {history && history.length > 0 && (
           <Card>
             <CardHeader>
