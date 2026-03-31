@@ -411,7 +411,7 @@ const tiers = [
   },
   {
     name: "Hustler",
-    price: "$29",
+    price: "$14",
     period: "/ mo",
     description: "For serious resellers scaling up",
     features: [
@@ -426,7 +426,7 @@ const tiers = [
   },
   {
     name: "Enterprise",
-    price: "$99",
+    price: "$49",
     period: "/ mo",
     description: "Unlimited power for large operations",
     features: [
