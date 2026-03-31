@@ -12,6 +12,7 @@ from arq.connections import RedisSettings
 from arq.cron import cron
 
 from app.config import get_settings
+from app.tasks.scrape_tasks import shutdown, startup
 
 logger = logging.getLogger(__name__)
 
@@ -55,5 +56,5 @@ class WorkerSettings:
         ),
     ]
 
-    on_startup = "app.tasks.scrape_tasks.startup"
-    on_shutdown = "app.tasks.scrape_tasks.shutdown"
+    on_startup = startup
+    on_shutdown = shutdown
